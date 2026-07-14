@@ -4,22 +4,22 @@ extra_css = ["stylesheets/extra.css"]
 
 nav = [
   {"All the Bags" = "https://bagofseeds.github.io/bagof/"},
-  {"Bag of Things" = "index.md"},
+  {"Bag of Validators" = "index.md"},
 ]
 
 # The site_name is shown in the page header and the browser window title
 #
 # Read more: https://zensical.org/docs/setup/basics/#site_name
-site_name = "bagof-things"
+site_name = "bagof-validators"
 
-site_description = "A template repository for useful things in a bag."
+site_description = "Hint-based runtime validators."
 
 # The site_author attribute. This is used in the HTML head element.
 #
 # Read more: https://zensical.org/docs/setup/basics/#site_author
 site_author = "Yael Balbastre"
 
-site_url = "https://bagofseeds.github.io/bagof-things/"
+site_url = "https://bagofseeds.github.io/bagof-validators/"
 
 copyright = """
 Copyright &copy; 2026 The authors
