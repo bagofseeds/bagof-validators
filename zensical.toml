@@ -5,6 +5,17 @@ extra_css = ["stylesheets/extra.css"]
 nav = [
   {"All the Bags" = "https://bagofseeds.github.io/bagof/"},
   {"Bag of Validators" = "index.md"},
+  {"API" = [
+    "api/index.md",
+    {"base" = "api/base.md"},
+    {"collections" = "api/collections.md"},
+    {"common" = "api/common.md"},
+    {"exceptions" = "api/exceptions.md"},
+    {"misc" = "api/misc.md"},
+    {"numbers" = "api/numbers.md"},
+    {"numpy" = "api/numpy.md"},
+    {"strings" = "api/strings.md"},
+  ]}
 ]
 
 # The site_name is shown in the page header and the browser window title

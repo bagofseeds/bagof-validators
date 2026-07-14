@@ -1,3 +1,24 @@
+"""
+Modules
+-------
+base
+    Base class for magic validators.
+collections
+    Validators for collection types (list, tuple, dict, etc.).
+common
+    Common validators (any, union, etc.).
+exceptions
+    Exceptions raised by validators on validation error.
+misc
+    Miscellaneous validators (callable, etc.).
+numbers
+    Validators for numeric types (int, float, etc.).
+numpy
+    Validators for numpy types (ndarray, etc.).
+strings
+    Validators for string types (str, bytes, etc.).
+"""
+
 __all__ = [
     "base",
     "collections",
