@@ -1,1 +1,1 @@
-# bagof.validators.strings
+# ::: bagof.validators.strings

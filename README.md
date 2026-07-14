@@ -7,7 +7,7 @@ Hint-based validators that operate at runtime.
 ```pycon
 >>> from collections import abc
 >>> from bagof.validators import get_validator
->>> valdiate = get_validator(abc.Sequence[int])
+>>> validate = get_validator(abc.Sequence[int])
 >>> validate([1, 2, 3])
 >>> validate(1)
 TypeValidationError: IsSequence(collections.abc.Sequence[int]): Not a valid instance.

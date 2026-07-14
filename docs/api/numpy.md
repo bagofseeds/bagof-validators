@@ -1,1 +1,1 @@
-# bagof.validators.numpy
+# ::: bagof.validators.numpy

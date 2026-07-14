@@ -1,1 +1,5 @@
-# bagof.validators
+---
+icon: fontawesome/brands/python
+---
+
+# ::: bagof.validators
