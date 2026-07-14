@@ -1,16 +1,18 @@
-# bagof-things
+# bagof-validators
 
-Template repository for `bagof` Python projects.
+Hint-based validators that operate at runtime.
 
-This template includes:
+## Example
 
-- a `pyproject.toml` configured for a `bagof.things` package
-- a `bagof` namespace package under `src/`
-- reusable GitHub Actions for linting, testing, and publishing
-
-The workflow wrappers intentionally track `bagofseeds/actions@main` so
-template-generated repositories inherit shared CI updates without manually
-refreshing pinned workflow SHAs.
-
-When using the template, replace `things` with your project-specific package
-name.
+```pycon
+>>> from collections import abc
+>>> from bagof.validators import get_validator
+>>> valdiate = get_validator(abc.Sequence[int])
+>>> validate([1, 2, 3])
+>>> validate(1)
+TypeValidationError: IsSequence(collections.abc.Sequence[int]): Not a valid instance.
+|> value = 1
+>>> validate(["a", "b", "c"])
+ValueValidationError: IsSequence(collections.abc.Sequence[int]): Iterable's 0th element is not valid.
+|> value = ['a', 'b', 'c']
+```
