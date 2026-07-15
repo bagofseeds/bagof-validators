@@ -91,8 +91,12 @@ class IsMapping(Validator[MAPPING], register=abc.Mapping):
                     ) from e
 
 
-class IsTuple(Validator[TUPLE], register=tuple):
-    """Validator for [`tuple`][]."""
+class IsTupleIsh(Validator[TUPLE]):
+    """
+    Per-item validator for sequence (not necessarily tuple) containers.
+
+    This validator is not registered by default.
+    """
 
     DEFAULT = tuple
 
@@ -136,6 +140,18 @@ class IsTuple(Validator[TUPLE], register=tuple):
             super().__call__(value)  # check type
 
 
+class IsTuple(IsTupleIsh[TUPLE], register=tuple):
+    """Validator for [`tuple`][]."""
+
+    DEFAULT = tuple
+
+    def __call__(self, value: TUPLE) -> None:
+        # Always check the type
+        Validator(self.hint)(value)
+        # Then check the items
+        super().__call__(value)
+
+
 class IsDict(IsMapping[MAPPING], register=dict):
     """Validator for [`dict`][]."""
 
@@ -144,7 +160,7 @@ class IsDict(IsMapping[MAPPING], register=dict):
     DEFAULT = dict
 
 
-class IsTypedDict(Validator[MAPPING], register=tx.TypedDict):
+class IsTypedDict(IsMapping[MAPPING], register=tx.TypedDict):
     """Validator for [`TypedDict`][typing.TypedDict]."""
 
     DEFAULT = tx.TypedDict
@@ -156,9 +172,11 @@ class IsTypedDict(Validator[MAPPING], register=tx.TypedDict):
         # Get typeddict options
         origin = self.origin
         total = getattr(origin, "__total__", True)
-        extra_items = getattr(origin, "__extra_items__", tx.Never)
-        closed = getattr(origin, "__closed__", extra_items is tx.Never)
+        extra_items = getattr(origin, "__extra_items__", tx.Any)
+        closed = getattr(origin, "__closed__", False)
         annots = tx.get_type_hints(origin, include_extras=True)
+        if extra_items is getattr(tx, "NoExtraItems", tx.Any):
+            extra_items = tx.Any
 
         # Check explicitly defined keys
         for key, arg in annots.items():
