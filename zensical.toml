@@ -106,22 +106,26 @@ inventories = [
 paths = ["src"]
 
 [project.plugins.mkdocstrings.handlers.python.options]
-docstring_style = "numpy"
-inherited_members = false
-show_source = false
-merge_init_into_class = true
-separate_signature = true
-members_order = "source"
-show_root_heading = true
-show_overloads = true
-overloads_only = true
-relative_crossrefs = true
-scoped_crossrefs = true
-show_if_no_docstring = false
-allow_inspection = true
-filters = "public"
-group_by_category = true
-show_category_heading = true
+docstring_style             = "numpy"
+inherited_members           = false
+show_source                 = false
+merge_init_into_class       = true
+separate_signature          = true
+members_order               = "source"
+show_root_heading           = true
+show_overloads              = true
+overloads_only              = true
+relative_crossrefs          = true
+scoped_crossrefs            = true
+show_if_no_docstring        = false
+allow_inspection            = true
+filters                     = "public"
+group_by_category           = true
+show_category_heading       = true
+modernize_annotations       = true
+show_signature_annotations  = true
+signature_crossrefs         = true
+extensions                  = ["griffe_typing_extensions:TypingExtensionsToTyping"]
 
 # ----------------------------------------------------------------------------
 # Markdown extras

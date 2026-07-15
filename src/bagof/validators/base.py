@@ -8,7 +8,7 @@ __all__ = [
 ]
 
 # dependencies
-import typing_extensions as tx
+import typing_extensions as tx  # noqa: I001
 
 # bags
 from bagof.core.magic import (
@@ -28,11 +28,16 @@ from .exceptions import (
 )
 
 # typing
-ClassDecorator = tx.Callable[[TYPE], TYPE]
+
+ClassDecorator: tx.TypeAlias = tx.Callable[[TYPE], TYPE]
+"""A class decorator (that takes a class and returns a class)."""
+
 ValidatorRegistry = tx.Dict[tx.Hashable, tx.Type["Validator"]]
+"""A registry of validators, mapping type hints to validator classes."""
 
 # constants
-_VALIDATORS: ValidatorRegistry = {}
+VALIDATORS: ValidatorRegistry = {}
+"""The global registry of validators."""
 
 
 class ValidatorMetaclass(type(MagicHint)):
@@ -156,7 +161,7 @@ class Validator(MagicHint[T], metaclass=ValidatorMetaclass):
         ...
 
     @staticmethod
-    def register(*hints, registry=_VALIDATORS):
+    def register(*hints, registry=VALIDATORS):
         """
         Decorator to register a validator class for one or more type hints.
 
@@ -172,6 +177,7 @@ class Validator(MagicHint[T], metaclass=ValidatorMetaclass):
                         int(value)
                     except (TypeError, ValueError) as e:
                         raise self.type_error(value) from e
+            ```
 
         Parameters
         ----------
@@ -203,7 +209,7 @@ class Validator(MagicHint[T], metaclass=ValidatorMetaclass):
     @staticmethod
     def get(
         hint: tx.Any,
-        registry: ValidatorRegistry = _VALIDATORS,
+        registry: ValidatorRegistry = VALIDATORS,
         fallback: tx.Optional[tx.Type["Validator"]] = None
     ) -> tx.Optional["Validator"]:
         """
@@ -216,13 +222,13 @@ class Validator(MagicHint[T], metaclass=ValidatorMetaclass):
         registry : ValidatorRegistry
             The registry to look up the validator in.
             Defaults to the global registry.
-        fallback : Optional[Type[Validator]]
+        fallback : tx.Optional[Type[Validator]]
             The fallback validator class to use if no matching validator
             is found. Defaults to [`Validator`][].
 
         Returns
         -------
-        Optional[Validator]
+        tx.Optional[Validator]
             The best-matching validator for the given type hint, or `None`
             if no matching validator is found and no fallback is provided.
         """
@@ -234,7 +240,7 @@ class Validator(MagicHint[T], metaclass=ValidatorMetaclass):
     @staticmethod
     def get_class(
         hint: tx.Any,
-        registry: ValidatorRegistry = _VALIDATORS,
+        registry: ValidatorRegistry = VALIDATORS,
         fallback: tx.Optional[tx.Type["Validator"]] = None
     ) -> tx.Optional[tx.Type["Validator"]]:
         """
@@ -247,13 +253,13 @@ class Validator(MagicHint[T], metaclass=ValidatorMetaclass):
         registry : ValidatorRegistry
             The registry to look up the validator in.
             Defaults to the global registry.
-        fallback : Optional[Type[Validator]]
+        fallback : tx.Optional[Type[Validator]]
             The fallback validator class to use if no matching validator
             is found. Defaults to [`Validator`][].
 
         Returns
         -------
-        Optional[Type[Validator]]
+        tx.Optional[Type[Validator]]
             The best-matching validator class for the given type hint,
             or `None` if no matching validator is found and no fallback
             is provided.

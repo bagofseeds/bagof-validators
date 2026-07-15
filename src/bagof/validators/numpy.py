@@ -7,20 +7,20 @@ import typing_extensions as tx
 from .base import Validator
 
 if tx.TYPE_CHECKING:
-    import numpy as np
     from bagof.hints.typevars.co import DTYPE
+    from numpy import dtype, generic
 else:
     try:
-        import numpy as np
         from bagof.hints.typevars.co import DTYPE
+        from numpy import dtype, generic
     except ImportError:
-        np = None  # type: ignore[assignment]
+        dtype = generic = None  # type: ignore[assignment]
 
-if tx.TYPE_CHECKING or np:
+if tx.TYPE_CHECKING or dtype is not None:
 
-    class IsDType(Validator[DTYPE], register=(np.dtype, np.generic)):
-        """Validator for [`numpy.dtype`][numpy.dtype]."""
+    class IsDType(Validator[DTYPE], register=(dtype, generic)):
+        """Validator for [`numpy.dtype`][dtype]."""
 
-        DEFAULT = np.dtype
+        DEFAULT = dtype
 
     __all__ += ["IsDType"]
