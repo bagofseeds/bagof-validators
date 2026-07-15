@@ -79,6 +79,14 @@ class IsNonPositive(IsNumber[NUMBER]):
 class _ComparatorValidator(IsNumber[NUMBER]):
 
     def __init__(self, threshold: NUMBER, hint: tx.Any = UNSET) -> None:
+        """
+        Parameters
+        ----------
+        threshold : NUMBER
+            The threshold value to compare against.
+        hint : Any, optional
+            The type hint to validate against.
+        """
         super().__init__(hint)
         self.threshold = threshold
 
@@ -132,14 +140,45 @@ class IsInRange(IsNumber[NUMBER]):
         self,
         min_value: NUMBER,
         max_value: NUMBER,
+        inclusive: tx.Union[bool, tx.Tuple[bool, bool]] = True,
         hint: tx.Any = UNSET,
     ) -> None:
+        """
+        Parameters
+        ----------
+        min_value : NUMBER
+            The minimum value of the range.
+        max_value : NUMBER
+            The maximum value of the range.
+        inclusive : bool | (bool, bool), optional
+            Whether the range is inclusive on both ends.
+            If a single boolean is provided, it applies to both ends.
+        hint : Any, optional
+            The type hint to validate against.
+        """
         super().__init__(hint)
+        if isinstance(inclusive, bool):
+            inclusive = (inclusive, inclusive)
         self.min_value = min_value
         self.max_value = max_value
+        self.inclusive = inclusive
 
     def __call__(self, value: NUMBER) -> None:
         super().__call__(value)
         mn, mx = self.min_value, self.max_value
-        if not (mn <= value <= mx):
-            raise self.value_error(value, f"Not in range [{mn!r}, {mx!r}].")
+        if all(self.inclusive):
+            test = (mn <= value <= mx)
+            lb, ub = "[", "]"
+        elif not any(self.inclusive):
+            test = (mn < value < mx)
+            lb, ub = "(", ")"
+        elif not self.inclusive[0]:
+            test = (mn < value <= mx)
+            lb, ub = "(", "]"
+        else:
+            test = (mn <= value < mx)
+            lb, ub = "[", ")"
+        if not test:
+            raise self.value_error(
+                value, f"Not in range {lb}{mn!r}, {mx!r}{ub}."
+            )
