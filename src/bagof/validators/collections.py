@@ -2,6 +2,7 @@ __all__ = [
     "IsIterable",
     "IsSequence",
     "IsMapping",
+    "IsTupleIsh",
     "IsTuple",
     "IsDict",
     "IsTypedDict",
