@@ -23,6 +23,14 @@ class MatchesRegex(Validator[STR]):
     def __init__(
         self, pattern: tx.Union[str, re.Pattern], hint: tx.Any = UNSET
     ) -> None:
+        """
+        Parameters
+        ----------
+        pattern : str | re.Pattern
+            The regex pattern to match against.
+        hint : Any, optional
+            The type hint to validate against.
+        """
         super().__init__(hint)
         if not safe_isinstance(pattern, re.Pattern):
             pattern = re.compile(pattern)

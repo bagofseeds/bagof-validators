@@ -19,6 +19,15 @@ class IsNotOneOfValidator(Validator[T]):
     def __init__(
         self, forbidden: tx.Iterable[T], hint: tx.Any = UNSET
     ) -> None:
+        """
+        Parameters
+        ----------
+        forbidden : Iterable[T]
+            The set of forbidden values.
+        hint : Any, optional
+            The type hint to validate against.
+            If not provided, the default hint for the class is used.
+        """
         super().__init__(hint)
         self.forbidden = set(forbidden)
 
