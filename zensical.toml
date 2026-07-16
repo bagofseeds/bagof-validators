@@ -31,6 +31,8 @@ site_description = "Hint-based runtime validators."
 site_author = "Yael Balbastre"
 
 site_url = "https://bagofseeds.github.io/bagof-validators/"
+repo_url = "https://github.com/bagofseeds/bagof-validators"
+repo_name = "bagofseeds/bagof-validators"
 
 copyright = """
 Copyright &copy; 2026 The authors
