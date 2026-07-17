@@ -13,7 +13,7 @@ else:
     try:
         from bagof.hints.typevars.co import DTYPE
         from numpy import dtype, generic
-    except ImportError:
+    except ImportError:  # pragma: no cover
         dtype = generic = None  # type: ignore[assignment]
 
 if tx.TYPE_CHECKING or dtype is not None:

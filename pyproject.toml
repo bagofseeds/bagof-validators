@@ -39,6 +39,10 @@ Repository = "https://github.com/bagofseeds/bagof-validators"
 [project.optional-dependencies]
 test = [
     "pytest >= 7",
+    "pytest-cov >= 4",
+    # Optional runtime dependency: the numpy validators are only tested
+    # when it is installed (see tests/test_numpy.py).
+    "numpy",
 ]
 
 [build-system]
@@ -73,6 +77,16 @@ file = "src/bagof/validators/_version.py"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["bagof.validators"]
+
+[tool.coverage.report]
+exclude_also = [
+    # Type-checking blocks are never executed at runtime.
+    "if tx.TYPE_CHECKING:",
+    "if tx.TYPE_CHECKING or",
+]
 
 [tool.ruff]
 line-length = 79

@@ -221,8 +221,20 @@ class HasLength(IsSequence[ITERABLE]):
         self,
         length: int,
         hint: tx.Any = UNSET,
+        compose: bool = False,
     ) -> None:
-        super().__init__(hint)
+        """
+        Parameters
+        ----------
+        length : int
+            The expected length of the sequence.
+        hint : Any, optional
+            The type hint to validate against.
+        compose : bool
+            Whether to compose this validator with others, when they are
+            found in [`Annotated`][typing.Annotated] metadata.
+        """
+        super().__init__(hint, compose)
         self.length = length
 
     def __call__(self, value: ITERABLE) -> None:

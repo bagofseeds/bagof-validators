@@ -16,6 +16,7 @@ from bagof.core.magic import (
     MagicHint,
     get_from_registry,
     ishintstance,
+    safe_isinstance,
     safe_issubclass,
 )
 from bagof.hints.typevars.co import TYPE, T
@@ -210,7 +211,7 @@ class Validator(MagicHint[T], metaclass=ValidatorMetaclass):
     def get(
         hint: tx.Any,
         registry: ValidatorRegistry = VALIDATORS,
-        fallback: tx.Optional[tx.Type["Validator"]] = None
+        fallback: tx.Optional[tx.Type["Validator"]] = UNSET
     ) -> tx.Optional["Validator"]:
         """
         Get the best-matching conversion function for a given type hint.
@@ -225,6 +226,7 @@ class Validator(MagicHint[T], metaclass=ValidatorMetaclass):
         fallback : tx.Optional[Type[Validator]]
             The fallback validator class to use if no matching validator
             is found. Defaults to [`Validator`][].
+            Pass `None` explicitly to get `None` instead of a fallback.
 
         Returns
         -------
@@ -241,7 +243,7 @@ class Validator(MagicHint[T], metaclass=ValidatorMetaclass):
     def get_class(
         hint: tx.Any,
         registry: ValidatorRegistry = VALIDATORS,
-        fallback: tx.Optional[tx.Type["Validator"]] = None
+        fallback: tx.Optional[tx.Type["Validator"]] = UNSET
     ) -> tx.Optional[tx.Type["Validator"]]:
         """
         Get the best-matching conversion class for a given type hint.
@@ -256,6 +258,7 @@ class Validator(MagicHint[T], metaclass=ValidatorMetaclass):
         fallback : tx.Optional[Type[Validator]]
             The fallback validator class to use if no matching validator
             is found. Defaults to [`Validator`][].
+            Pass `None` explicitly to get `None` instead of a fallback.
 
         Returns
         -------
@@ -264,6 +267,8 @@ class Validator(MagicHint[T], metaclass=ValidatorMetaclass):
             or `None` if no matching validator is found and no fallback
             is provided.
         """
+        if fallback is UNSET:
+            fallback = Validator
         return get_from_registry(hint, registry) or fallback
 
 
@@ -278,7 +283,8 @@ get_validator_class = Validator.get_class
 
 
 def _trywrap_validator(
-    validator: tx.Callable[[T], None], error: Exception
+    validator: tx.Callable[[T], None],
+    error: tx.Union[Exception, tx.Type[Exception], tx.Callable[[T], Exception]]
 ) -> tx.Callable[[T], None]:
     """
     Wrap a validator to catch errors and raise a [`ValidationError`][] instead.
@@ -288,7 +294,8 @@ def _trywrap_validator(
             return validator(value)
         except (TypeError, ValueError) as e:
             _error = error
-            if safe_issubclass(_error, Exception):
+            if not safe_isinstance(_error, BaseException):
+                # Either an exception class or a factory (e.g. `value_error`).
                 _error = _error(value)
             raise _error from e
     return wrapped
