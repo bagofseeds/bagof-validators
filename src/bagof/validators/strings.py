@@ -21,7 +21,10 @@ class MatchesRegex(Validator[STR]):
     DEFAULT = str
 
     def __init__(
-        self, pattern: tx.Union[str, re.Pattern], hint: tx.Any = UNSET
+        self,
+        pattern: tx.Union[str, re.Pattern],
+        hint: tx.Any = UNSET,
+        compose: bool = False,
     ) -> None:
         """
         Parameters
@@ -30,8 +33,11 @@ class MatchesRegex(Validator[STR]):
             The regex pattern to match against.
         hint : Any, optional
             The type hint to validate against.
+        compose : bool
+            Whether to compose this validator with others, when they are
+            found in [`Annotated`][typing.Annotated] metadata.
         """
-        super().__init__(hint)
+        super().__init__(hint, compose)
         if not safe_isinstance(pattern, re.Pattern):
             pattern = re.compile(pattern)
         self.pattern = pattern

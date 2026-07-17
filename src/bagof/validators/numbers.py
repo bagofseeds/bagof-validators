@@ -78,7 +78,12 @@ class IsNonPositive(IsNumber[NUMBER]):
 
 class _ComparatorValidator(IsNumber[NUMBER]):
 
-    def __init__(self, threshold: NUMBER, hint: tx.Any = UNSET) -> None:
+    def __init__(
+        self,
+        threshold: NUMBER,
+        hint: tx.Any = UNSET,
+        compose: bool = False,
+    ) -> None:
         """
         Parameters
         ----------
@@ -86,8 +91,11 @@ class _ComparatorValidator(IsNumber[NUMBER]):
             The threshold value to compare against.
         hint : Any, optional
             The type hint to validate against.
+        compose : bool
+            Whether to compose this validator with others, when they are
+            found in [`Annotated`][typing.Annotated] metadata.
         """
-        super().__init__(hint)
+        super().__init__(hint, compose)
         self.threshold = threshold
 
 
@@ -142,6 +150,7 @@ class IsInRange(IsNumber[NUMBER]):
         max_value: NUMBER,
         inclusive: tx.Union[bool, tx.Tuple[bool, bool]] = True,
         hint: tx.Any = UNSET,
+        compose: bool = False,
     ) -> None:
         """
         Parameters
@@ -155,8 +164,11 @@ class IsInRange(IsNumber[NUMBER]):
             If a single boolean is provided, it applies to both ends.
         hint : Any, optional
             The type hint to validate against.
+        compose : bool
+            Whether to compose this validator with others, when they are
+            found in [`Annotated`][typing.Annotated] metadata.
         """
-        super().__init__(hint)
+        super().__init__(hint, compose)
         if isinstance(inclusive, bool):
             inclusive = (inclusive, inclusive)
         self.min_value = min_value

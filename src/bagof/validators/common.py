@@ -14,8 +14,8 @@ import typing_extensions as tx
 
 # bags
 from bagof.core.magic import (
+    MultipleCauses,
     safe_get_args,
-    safe_get_origin,
     safe_isinstance,
     safe_issubclass,
     unwrap,
@@ -42,7 +42,7 @@ class IsNone(Validator[NONE], register=NoneType):
 
     def __call__(self, value: NONE) -> None:
         if value is not None:
-            raise self.type_error(value, "None, None")
+            raise self.type_error(value, "Not None.")
 
 
 class IsUnion(Validator[T], register=(tx.Union, UnionType)):
@@ -52,7 +52,9 @@ class IsUnion(Validator[T], register=(tx.Union, UnionType)):
 
     def __init__(self, *a, **k) -> None:
         super().__init__(*a, **k)
-        if safe_get_origin(self.hint, unwrap=tx.Annotated) not in UNION_TYPES:
+        # `self.origin` unwraps typevars as well, so a typevar bound to a
+        # union is accepted, and validates like the union itself.
+        if self.origin not in UNION_TYPES:
             raise TypeError(f"{self!r}: Hint is not a Union type")
         if len(self.args) == 0:
             raise TypeError(f"{self!r}: No arguments provided")
@@ -68,9 +70,8 @@ class IsUnion(Validator[T], register=(tx.Union, UnionType)):
                 continue
 
         raise self.type_error(
-            "Not compatible with any of the union types.",
-            validator=self, parents=errors, value=value
-        )
+            value, "Not compatible with any of the union types.",
+        ) from MultipleCauses(errors)
 
 
 class IsLiteral(Validator[T], register=tx.Literal):
@@ -90,11 +91,9 @@ class IsTypeVar(Validator[T], register=tx.TypeVar):
 
     DEFAULT = tx.TypeVar("T")
 
-    @property
-    def unwrapped(self) -> tx.Any:
-        return unwrap(self.hint, (tx.Annotated, tx.TypeVar))
-
     def __call__(self, value: T) -> None:
+        # `unwrapped` resolves the typevar (see `Validator.UNWRAP`), so this
+        # re-dispatches to the validator registered for the bound itself.
         return Validator.get(self.unwrapped)(value)
 
 
@@ -120,8 +119,19 @@ class IsAnnotated(Validator[T], register=tx.Annotated):
         return decorator
 
     @classmethod
-    def _get_validator(cls, hint: tx.Any) -> tx.Optional[tx.Type[Validator]]:
-        return Validator.get(hint, registry=cls._REGISTRY, fallback=None)
+    def _get_validator(cls, hint: tx.Any) -> tx.Optional[Validator]:
+        # Metadata are usually instances (e.g. `re.compile(...)`), whereas
+        # the registry is keyed by their type (e.g. `re.Pattern`), so fall
+        # back to a lookup by type. The metadata itself is then passed to
+        # the validator's constructor.
+        validator_cls = Validator.get_class(
+            hint, registry=cls._REGISTRY, fallback=None
+        ) or Validator.get_class(
+            type(hint), registry=cls._REGISTRY, fallback=None
+        )
+        if validator_cls is None:
+            return None
+        return validator_cls(hint)
 
     @property
     def validators(self) -> tx.Tuple[Validator, ...]:
