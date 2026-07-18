@@ -26,7 +26,13 @@ from .base import Validator
 
 
 class IsNumber(Validator[NUMBER], register=numbers.Number):
-    """Validator for [`Number`][numbers.Number]."""
+    """
+    Validator for [`Number`][numbers.Number].
+
+    !!! note
+        Numeric widening is accepted: an [`int`][] passes a [`float`][]
+        hint, and an [`int`][] or [`float`][] passes a [`complex`][] hint.
+    """
 
     DEFAULT = numbers.Number
 

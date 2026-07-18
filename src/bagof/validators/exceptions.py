@@ -7,7 +7,15 @@ from bagof.core.magic import MagicError
 
 
 class ValidationError(MagicError):
-    """Base class for all validation errors."""
+    """
+    Base class for all validation errors.
+
+    !!! note
+        The concrete [`ValueValidationError`][] and
+        [`TypeValidationError`][] subclasses also inherit from the built-in
+        [`ValueError`][] and [`TypeError`][], so they can be caught as
+        either.
+    """
 
     def __init__(self, *args, **kwargs) -> None:
         if "validator" in kwargs:

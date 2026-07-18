@@ -67,9 +67,12 @@ class Validator(MagicHint[T], metaclass=ValidatorMetaclass):
     Base class for magic validators.
 
     The default validator falls back to a rather crude heuristic to check
-    whether the type of the validated object is compatible with the type hint.
-    This does not work well for generic types, so it is recommended to
-    implement a custom validator for generic types.
+    whether the type of the validated object is compatible with the type
+    hint.
+
+    !!! warning
+        This heuristic does not work well for generic types, so it is
+        recommended to implement a custom validator for generic types.
     """
 
     DEFAULT = tx.Any
