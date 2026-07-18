@@ -96,7 +96,9 @@ class IsTupleIsh(Validator[TUPLE]):
     """
     Per-item validator for sequence (not necessarily tuple) containers.
 
-    This validator is not registered by default.
+    !!! note
+        This validator is not registered by default, so it is only used
+        when instantiated explicitly.
     """
 
     DEFAULT = tuple
