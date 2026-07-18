@@ -151,7 +151,19 @@ class IsGreaterEqual(_ComparatorValidator[NUMBER]):
 
 
 class IsInRange(IsNumber[NUMBER]):
-    """Validator for numbers in a range."""
+    """
+    Validator for numbers in a range.
+
+    !!! example
+        ```pycon
+        >>> from bagof.validators.numbers import IsInRange
+        >>> validate = IsInRange(0, 1)
+        >>> validate(0.5)
+        >>> validate(2)
+        ValueValidationError: IsInRange(0, 1): Not in range [0, 1].
+        |> value = 2
+        ```
+    """
 
     def __init__(
         self,

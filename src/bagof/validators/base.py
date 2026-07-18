@@ -219,6 +219,19 @@ class Validator(MagicHint[T], metaclass=ValidatorMetaclass):
         """
         Get the best-matching conversion function for a given type hint.
 
+        The returned validator is a callable that returns `None` on success
+        and raises a [`ValidationError`][] on failure:
+
+        !!! example
+            ```pycon
+            >>> from bagof.validators import get_validator
+            >>> validate = get_validator(int)
+            >>> validate(3)
+            >>> validate("x")
+            TypeValidationError: IsNumber(<class 'int'>): Not a valid instance.
+            |> value = 'x'
+            ```
+
         Parameters
         ----------
         hint
