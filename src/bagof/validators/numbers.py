@@ -104,6 +104,9 @@ class _ComparatorValidator(IsNumber[NUMBER]):
         super().__init__(hint, compose)
         self.threshold = threshold
 
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}({self.threshold!r})"
+
 
 class IsLessThan(_ComparatorValidator[NUMBER]):
     """Validator for numbers less than a threshold."""
@@ -180,6 +183,12 @@ class IsInRange(IsNumber[NUMBER]):
         self.min_value = min_value
         self.max_value = max_value
         self.inclusive = inclusive
+
+    def __repr__(self) -> str:
+        args = f"{self.min_value!r}, {self.max_value!r}"
+        if self.inclusive != (True, True):
+            args += f", inclusive={self.inclusive!r}"
+        return f"{type(self).__name__}({args})"
 
     def __call__(self, value: NUMBER) -> None:
         super().__call__(value)
