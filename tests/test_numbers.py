@@ -234,3 +234,23 @@ def test_in_range_type_check() -> None:
     validator = numbers.IsInRange(0, 10, hint=int)
     with pytest.raises(TypeValidationError):
         validator("a")
+
+
+def test_comparator_repr_shows_threshold() -> None:
+    assert repr(numbers.IsLessThan(5)) == "IsLessThan(5)"
+    assert repr(numbers.IsGreaterEqual(3)) == "IsGreaterEqual(3)"
+
+
+def test_in_range_repr_shows_bounds() -> None:
+    assert repr(numbers.IsInRange(0, 1)) == "IsInRange(0, 1)"
+    # non-default inclusivity is shown too
+    assert (
+        repr(numbers.IsInRange(0, 1, inclusive=(True, False)))
+        == "IsInRange(0, 1, inclusive=(True, False))"
+    )
+
+
+def test_in_range_error_message_includes_bounds() -> None:
+    with pytest.raises(ValueValidationError) as exc:
+        numbers.IsInRange(0, 1)(2)
+    assert str(exc.value).startswith("IsInRange(0, 1):")
