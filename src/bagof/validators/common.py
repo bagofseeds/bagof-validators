@@ -46,7 +46,7 @@ class IsNone(Validator[NONE], register=NoneType):
 
 
 class IsUnion(Validator[T], register=(tx.Union, UnionType)):
-    """Validator for [`Union`][typing.Any]."""
+    """Validator for [`Union`][typing.Union]."""
 
     DEFAULT = tx.Union
 
@@ -110,6 +110,22 @@ class IsAnnotated(Validator[T], register=tx.Annotated):
 
     @classmethod
     def register(cls, *hints: tx.Unpack[tx.Tuple[tx.Any]]) -> ClassDecorator:
+        """
+        Decorator to register a validator class for one or more
+        `Annotated` metadata hints (e.g. [`re.Pattern`][]).
+
+        Parameters
+        ----------
+        *hints
+            One or more metadata hints to register the validator class
+            for.
+
+        Returns
+        -------
+        ClassDecorator
+            A decorator that registers the validator class for the
+            given metadata hints.
+        """
 
         def decorator(validator_cls: tx.Type[Validator]) -> tx.Type[Validator]:
             for hint in hints:

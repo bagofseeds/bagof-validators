@@ -12,13 +12,13 @@ common
 exceptions
     Exceptions raised by validators on validation error.
 misc
-    Miscellaneous validators (callable, etc.).
+    Miscellaneous validators (forbidden values, etc.).
 numbers
     Validators for numeric types (int, float, etc.).
 numpy
-    Validators for numpy types (ndarray, etc.).
+    Validators for numpy types (dtype, etc.).
 strings
-    Validators for string types (str, bytes, etc.).
+    Validators for string types (regex patterns, etc.).
 """
 
 __all__ = [

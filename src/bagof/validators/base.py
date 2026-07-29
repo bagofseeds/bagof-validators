@@ -81,7 +81,7 @@ class Validator(MagicHint[T], metaclass=ValidatorMetaclass):
         """
         Parameters
         ----------
-        hint
+        hint : Any, optional
             The type hint to use for this magic object.
             If not provided, the default hint for the class is used.
         compose : bool
@@ -169,6 +169,10 @@ class Validator(MagicHint[T], metaclass=ValidatorMetaclass):
         """
         Decorator to register a validator class for one or more type hints.
 
+        Can be used as a bare decorator (its first argument is then the
+        validator class itself, as in the example below), or called with
+        one or more type hints to obtain a decorator factory instead.
+
         !!! example
             ```python
             @Validator.register
@@ -187,15 +191,19 @@ class Validator(MagicHint[T], metaclass=ValidatorMetaclass):
         ----------
         *hints
             One or more type hints to register the validator class for.
+            Defaults to the validator class's `DEFAULT` hint if none are
+            given. When used as a bare decorator, the first "hint" is
+            actually the validator class to register.
         registry : ValidatorRegistry
             The registry to register the validator class in.
             Defaults to the global registry.
 
         Returns
         -------
-        ClassDecorator
-            A decorator that registers the validator class for the given
-            type hints.
+        tx.Type["Validator"] | ClassDecorator
+            When used as a bare decorator, the same validator class, now
+            registered. Otherwise, a decorator that registers the
+            validator class it is applied to.
 
         """
         if hints and safe_issubclass(hints[0], Validator):

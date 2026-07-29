@@ -1,3 +1,5 @@
+"""Validators for numpy types (dtype, etc.)."""
+
 __all__ = []
 
 # dependencies
@@ -19,7 +21,7 @@ else:
 if tx.TYPE_CHECKING or dtype is not None:
 
     class IsDType(Validator[DTYPE], register=(dtype, generic)):
-        """Validator for [`numpy.dtype`][dtype]."""
+        """Validator for [`numpy.dtype`][numpy.dtype]."""
 
         DEFAULT = dtype
 

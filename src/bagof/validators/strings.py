@@ -1,3 +1,5 @@
+"""Validators for string types (regex patterns, etc.)."""
+
 __all__ = ["MatchesRegex"]
 
 # stdlib
