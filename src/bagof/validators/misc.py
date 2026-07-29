@@ -1,3 +1,5 @@
+"""Miscellaneous validators (forbidden values, etc.)."""
+
 __all__ = [
     "IsNotOneOfValidator",
 ]

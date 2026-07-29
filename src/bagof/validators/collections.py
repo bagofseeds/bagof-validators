@@ -1,3 +1,5 @@
+"""Validators for collection types (list, tuple, dict, etc.)."""
+
 __all__ = [
     "IsIterable",
     "IsSequence",
@@ -25,7 +27,16 @@ from .exceptions import ValidationError
 
 
 class IsIterable(Validator[ITERABLE], register=abc.Iterable):
-    """Validator for [`abc.Iterable`][]."""
+    """
+    Validator for [`abc.Iterable`][].
+
+    !!! note
+        When parameterized (e.g. `Iterable[int]`), each element is
+        validated against the argument type. This requires the value
+        to be an [`abc.Sequence`][] (e.g. a `list`), since a one-shot
+        iterator or generator cannot be safely re-validated; a bare
+        generator raises a `TypeValidationError` in that case.
+    """
 
     DEFAULT = abc.Iterable
 
@@ -217,7 +228,13 @@ class IsTypedDict(IsMapping[MAPPING], register=tx.TypedDict):
 
 
 class HasLength(IsSequence[ITERABLE]):
-    """Validator for [`abc.Sequence`][], that checks its length."""
+    """
+    Validator for [`abc.Sequence`][], that checks its length.
+
+    !!! note
+        This validator is not registered by default, so it is only used
+        when instantiated explicitly, e.g. `HasLength(3)`.
+    """
 
     def __init__(
         self,

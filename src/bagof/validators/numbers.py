@@ -1,3 +1,5 @@
+"""Validators for numeric types (int, float, etc.)."""
+
 __all__ = [
     "IsNumber",
     "IsPositive",
