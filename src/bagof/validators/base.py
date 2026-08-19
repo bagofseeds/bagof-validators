@@ -108,7 +108,7 @@ class Validator(MagicHint[T], metaclass=ValidatorMetaclass):
         if not ishintstance(value, self.hint):
             raise self.type_error(value, "Not a valid instance.")
 
-    def error(
+    def make_error(
         self, value: tx.Any, message: tx.Optional[str] = None, **kwargs
     ) -> ValidationError:
         """Return a [`ValidationError`][] with the given value and message."""
@@ -129,7 +129,7 @@ class Validator(MagicHint[T], metaclass=ValidatorMetaclass):
         """Return a [`TypeValidationError`][] with the given value."""
         if message is None:
             message = f"Invalid value type: {type(value)}"
-        return self.error(value, message, type=TypeValidationError)
+        return self.make_error(value, message, type=TypeValidationError)
 
     def value_error(
         self, value: tx.Any, message: tx.Optional[str] = None
@@ -137,7 +137,7 @@ class Validator(MagicHint[T], metaclass=ValidatorMetaclass):
         """Return a [`ValueValidationError`][] with the given value."""
         if message is None:
             message = "Invalid value."
-        return self.error(value, message, type=ValueValidationError)
+        return self.make_error(value, message, type=ValueValidationError)
 
     def _wrap_validator(self, validator: tx.Callable) -> tx.Callable:
         """

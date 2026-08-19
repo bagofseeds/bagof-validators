@@ -108,17 +108,35 @@ def test_compose_is_forwarded(factory: tx.Any) -> None:
 def test_error_types(type: tx.Any, expected: tx.Any) -> None:
     validator = Validator(int)
     kwargs = {} if type is UNSET else {"type": type}
-    error = validator.error(1, "message", **kwargs)
+    error = validator.make_error(1, "message", **kwargs)
     assert isinstance(error, expected)
     assert error.this is validator
     assert error.value == 1
     assert error.message == "message"
 
 
+def test_error_raises_what_make_error_builds() -> None:
+    # `make_error` builds, `error` raises - the two are never the same
+    # verb, so neither can be mistaken for the other.
+    validator = Validator(int)
+    with pytest.raises(ValidationError) as info:
+        validator.error("message", 1)
+    assert info.value.this is validator
+    assert info.value.value == 1
+    assert info.value.message == "message"
+
+
+def test_error_raises_the_subclass_error_type() -> None:
+    # `error` is inherited from `MagicHint`, but it must raise the type
+    # this class's `make_error` builds, not a bare `MagicError`.
+    with pytest.raises(TypeValidationError):
+        Validator(int).error("message", 1, type="type")
+
+
 @pytest.mark.parametrize(
     "method,expected",
     [
-        ("error", ValidationError),
+        ("make_error", ValidationError),
         ("type_error", TypeValidationError),
         ("value_error", ValueValidationError),
     ],
