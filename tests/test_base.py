@@ -115,6 +115,23 @@ def test_error_types(type: tx.Any, expected: tx.Any) -> None:
     assert error.message == "message"
 
 
+def test_the_whole_error_family_returns() -> None:
+    # `error`, `type_error` and `value_error` all build and return, with
+    # the same `(value, message)` shape - so every call site reads
+    # `raise self.<something>_error(...)`.
+    validator = Validator(int)
+    for build in (
+        validator.error,
+        validator.type_error,
+        validator.value_error,
+    ):
+        built = build(1, "message")
+        assert isinstance(built, ValidationError)
+        assert built.this is validator
+        assert built.value == 1
+        assert built.message == "message"
+
+
 @pytest.mark.parametrize(
     "method,expected",
     [
