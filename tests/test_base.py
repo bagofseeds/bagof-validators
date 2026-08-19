@@ -108,35 +108,34 @@ def test_compose_is_forwarded(factory: tx.Any) -> None:
 def test_error_types(type: tx.Any, expected: tx.Any) -> None:
     validator = Validator(int)
     kwargs = {} if type is UNSET else {"type": type}
-    error = validator.make_error(1, "message", **kwargs)
+    error = validator.error(1, "message", **kwargs)
     assert isinstance(error, expected)
     assert error.this is validator
     assert error.value == 1
     assert error.message == "message"
 
 
-def test_error_raises_what_make_error_builds() -> None:
-    # `make_error` builds, `error` raises - the two are never the same
-    # verb, so neither can be mistaken for the other.
+def test_the_whole_error_family_returns() -> None:
+    # `error`, `type_error` and `value_error` all build and return, with
+    # the same `(value, message)` shape - so every call site reads
+    # `raise self.<something>_error(...)`.
     validator = Validator(int)
-    with pytest.raises(ValidationError) as info:
-        validator.error("message", 1)
-    assert info.value.this is validator
-    assert info.value.value == 1
-    assert info.value.message == "message"
-
-
-def test_error_raises_the_subclass_error_type() -> None:
-    # `error` is inherited from `MagicHint`, but it must raise the type
-    # this class's `make_error` builds, not a bare `MagicError`.
-    with pytest.raises(TypeValidationError):
-        Validator(int).error("message", 1, type="type")
+    for build in (
+        validator.error,
+        validator.type_error,
+        validator.value_error,
+    ):
+        built = build(1, "message")
+        assert isinstance(built, ValidationError)
+        assert built.this is validator
+        assert built.value == 1
+        assert built.message == "message"
 
 
 @pytest.mark.parametrize(
     "method,expected",
     [
-        ("make_error", ValidationError),
+        ("error", ValidationError),
         ("type_error", TypeValidationError),
         ("value_error", ValueValidationError),
     ],
