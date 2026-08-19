@@ -103,10 +103,21 @@ def test_union_error_collects_causes() -> None:
     validator = common.IsUnion(tx.Union[int, str])
     with pytest.raises(TypeValidationError) as info:
         validator(None)
-    # Each failed member contributes a cause.
-    causes = info.value.causes[0].__all_causes__
+    # Each failed member contributes a cause. The `MultipleCauses` wrapper
+    # is transparent, so the members show up directly.
+    causes = info.value.causes
     assert len(causes) == 2
     assert all(isinstance(c, ValidationError) for c in causes)
+
+
+def test_union_error_reports_causes_in_its_message() -> None:
+    validator = common.IsUnion(tx.Union[int, str])
+    with pytest.raises(TypeValidationError) as info:
+        validator(None)
+    message = info.value._make_message()
+    # Both member failures are visible, each on its own line.
+    assert message.count("\n?>") == 2
+    assert info.value.depth == 2
 
 
 @pytest.mark.parametrize("hint", [int, str, tx.List[int], tx.Literal[1]])
