@@ -202,6 +202,13 @@ class IsAnnotated(Validator[T], register=tx.Annotated):
                 # Look into annotation registry
                 arg = self._get_validator(arg)
             if safe_isinstance(arg, Validator):
+                if not arg.has_explicit_hint:
+                    # A metadata validator written without a hint of its
+                    # own validates the annotated type. Without this, a
+                    # non-composable one - which replaces the base type
+                    # check - was left checking its class `DEFAULT`, so
+                    # `Annotated[int, IsPositive()]` accepted `1.5`.
+                    arg = arg.rebind(wrapped_type)
                 if getattr(arg, "compose", False):
                     validators.append(arg)
                 else:
