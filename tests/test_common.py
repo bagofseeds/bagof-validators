@@ -543,3 +543,71 @@ def test_register_alias_still_works() -> None:
         common.IsAnnotated.register.__func__
         is common.IsAnnotated.register_metadata.__func__
     )
+
+
+# ----------------------------------------------------------------------
+# Annotated metadata adopts the annotated type
+# ----------------------------------------------------------------------
+
+
+def test_annotated_instance_adopts_the_annotated_type() -> None:
+    # bags
+    from bagof.validators.numbers import IsPositive
+
+    # A non-composable validator replaces the base type check, so if it
+    # keeps its own `DEFAULT` hint nothing checks the annotated type at
+    # all -- `Annotated[int, IsPositive()]` accepted `1.5`.
+    validator = common.IsAnnotated(tx.Annotated[int, IsPositive()])
+    assert [v.hint for v in validator.validators] == [int]
+    validator(5)
+    with pytest.raises(TypeValidationError):
+        validator(1.5)
+    with pytest.raises(ValueValidationError):
+        validator(-5)
+
+
+def test_annotated_instance_and_class_forms_agree() -> None:
+    # bags
+    from bagof.validators.numbers import IsPositive
+
+    as_class = common.IsAnnotated(tx.Annotated[int, IsPositive])
+    as_instance = common.IsAnnotated(tx.Annotated[int, IsPositive()])
+    assert [v.hint for v in as_class.validators] == [
+        v.hint for v in as_instance.validators
+    ]
+
+
+def test_annotated_explicit_hint_is_respected() -> None:
+    # bags
+    from bagof.validators.numbers import IsPositive
+
+    # A hint written on the instance wins over the annotated type.
+    validator = common.IsAnnotated(tx.Annotated[int, IsPositive(float)])
+    assert [v.hint for v in validator.validators] == [float]
+    validator(1.5)
+
+
+def test_annotated_composable_metadata_adopts_the_type_too() -> None:
+    # bags
+    from bagof.validators.numbers import IsGreaterThan
+
+    validator = common.IsAnnotated(
+        tx.Annotated[int, IsGreaterThan(0, compose=True)]
+    )
+    assert [v.hint for v in validator.validators] == [int, int]
+    validator(5)
+    with pytest.raises(TypeValidationError):
+        validator(1.5)
+
+
+def test_annotated_configured_metadata_keeps_its_configuration() -> None:
+    # bags
+    from bagof.validators.numbers import IsInRange
+
+    validator = common.IsAnnotated(tx.Annotated[int, IsInRange(0, 10)])
+    only = validator.validators[0]
+    assert (only.min_value, only.max_value) == (0, 10)
+    assert only.hint is int
+    validator(5)
+    with pytest.raises(ValueValidationError):
+        validator(20)
