@@ -60,9 +60,39 @@ def test_is_not_one_of_hint(hint: tx.Any) -> None:
         validator("a")
 
 
-def test_is_not_one_of_stores_a_set() -> None:
-    validator = misc.IsNotOneOfValidator([1, 2, 2])
-    assert validator.forbidden == {1, 2}
+def test_is_not_one_of_materialises_the_forbidden_values() -> None:
+    # Stored as a tuple rather than a set: membership is decided by type
+    # and value, not by hashing, so an unhashable forbidden value works.
+    validator = misc.IsNotOneOf([1, 2, 2])
+    assert tuple(validator.forbidden) == (1, 2, 2)
+
+
+def test_is_not_one_of_accepts_unhashable_forbidden_values() -> None:
+    validator = misc.IsNotOneOf([[1], [2]], hint=tx.Any)
+    validator([3])
+    with pytest.raises(ValueValidationError):
+        validator([1])
+
+
+@pytest.mark.parametrize(
+    "forbidden,value",
+    [
+        ([1], True),        # True is not 1
+        ([0], False),       # False is not 0
+        ([True], 1),
+        ([1.0], 1),         # a float literal is not an int
+    ],
+)
+def test_is_not_one_of_matches_by_type_as_well_as_value(
+    forbidden: tx.Any, value: tx.Any
+) -> None:
+    # `value in set(forbidden)` conflated these pairs, so forbidding one
+    # silently forbade the other.
+    misc.IsNotOneOf(forbidden, hint=tx.Any)(value)
+
+
+def test_is_not_one_of_alias_is_the_same_class() -> None:
+    assert misc.IsNotOneOfValidator is misc.IsNotOneOf
 
 
 def test_is_not_one_of_consumes_iterators() -> None:
