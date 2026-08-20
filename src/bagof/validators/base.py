@@ -154,7 +154,7 @@ class Validator(MagicHint[T], metaclass=ValidatorMetaclass):
     @staticmethod
     def register(
         validator: tx.Type["Validator"],
-        *hints: tx.Unpack[tx.Tuple[tx.Any]],
+        *hints: tx.Unpack[tx.Tuple[tx.Any, ...]],
         registry: ValidatorRegistry = ...
     ) -> tx.Type["Validator"]:
         ...
@@ -162,7 +162,7 @@ class Validator(MagicHint[T], metaclass=ValidatorMetaclass):
     @tx.overload
     @staticmethod
     def register(
-        *hints: tx.Unpack[tx.Tuple[tx.Any]],
+        *hints: tx.Unpack[tx.Tuple[tx.Any, ...]],
         registry: ValidatorRegistry = ...
     ) -> ClassDecorator:
         ...
