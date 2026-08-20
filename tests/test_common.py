@@ -10,7 +10,7 @@ from bagof.hints.typevars.co import INT, STR, NoneType, T
 
 # locals
 from bagof.validators import common
-from bagof.validators.base import Validator
+from bagof.validators.base import VALIDATORS, Validator
 from bagof.validators.exceptions import (
     TypeValidationError,
     ValidationError,
@@ -130,6 +130,33 @@ def test_union_rejects_bare_union() -> None:
     # The default hint is a bare `Union`, which has no arguments.
     with pytest.raises(TypeError, match="No arguments"):
         common.IsUnion()
+
+
+def test_union_member_raising_a_builtin_does_not_abort_the_union() -> None:
+
+    class Broken(Validator[complex]):
+        DEFAULT = complex
+
+        def __call__(self, value: tx.Any) -> None:
+            raise TypeError("this member is broken")
+
+    Validator.register(Broken, complex)
+    try:
+        # The `str` member matches, and must still be reached even though
+        # an earlier member raised a plain builtin rather than a
+        # `ValidationError`.
+        common.IsUnion(tx.Union[complex, str])("hello")
+    finally:
+        VALIDATORS.pop(complex, None)
+
+
+def test_union_member_with_a_non_boolean_eq_does_not_abort_the_union() -> None:
+    numpy = pytest.importorskip("numpy")
+    # `IsLiteral` used to evaluate `value in self.args`; numpy's `__eq__`
+    # made that raise a bare `ValueError`, which escaped the loop and
+    # killed the union even though the `int` member would have answered.
+    with pytest.raises(ValidationError):
+        common.IsUnion(tx.Union[tx.Literal[1], int])(numpy.array([1, 2]))
 
 
 def test_union_is_registered() -> None:

@@ -63,8 +63,14 @@ class IsUnion(Validator[T], register=(tx.Union, UnionType)):
     def __call__(self, value: T) -> None:
         errors = []
         for arg in self.args:
+            # Wrap each member so that a plain `TypeError`/`ValueError`
+            # from inside it becomes a `ValidationError` here, rather than
+            # escaping the loop and aborting the whole union -- a member
+            # that cannot answer is a member that did not match, not a
+            # reason to give up on the ones after it. Anything that is not
+            # a validation failure still propagates.
+            validator = self._wrap_validator(Validator.get(arg))
             try:
-                validator = Validator.get(arg)
                 return validator(value)
             except ValidationError as e:
                 errors.append(e)
