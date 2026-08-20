@@ -1,5 +1,6 @@
 # stdlib
 import collections as std_collections
+import typing as std_typing
 from collections import abc
 
 # dependencies
@@ -539,3 +540,55 @@ def test_iterator_elements_are_not_checked() -> None:
 
 def test_iterator_is_registered() -> None:
     assert isinstance(Validator.get(tx.Iterator[int]), collections.IsIterator)
+
+
+@pytest.mark.parametrize("TD", [tx.TypedDict, std_typing.TypedDict])
+def test_typeddict_works_in_either_spelling(TD: tx.Any) -> None:
+    # `typing.TypedDict` and `typing_extensions.TypedDict` are distinct
+    # objects, so the `tx.TypedDict` registry key used to miss the
+    # `typing` one entirely -- it fell through to `IsDict`, which rejected
+    # a perfectly valid value.
+    class Movie(TD):
+        title: str
+        year: int
+
+    validator = Validator.get(Movie)
+    assert isinstance(validator, collections.IsTypedDict)
+    validator({"title": "Alien", "year": 1979})
+    with pytest.raises(collections.ValidationError):
+        validator({"title": "Alien"})
+    with pytest.raises(collections.ValidationError):
+        validator({"title": "Alien", "year": "1979"})
+
+
+@pytest.mark.parametrize("TD", [tx.TypedDict, std_typing.TypedDict])
+def test_inherited_typeddict_is_not_treated_as_a_plain_dict(
+    TD: tx.Any,
+) -> None:
+    # An inherited TypedDict sits nearer to `dict` than to `TypedDict`,
+    # so it used to be handed to the dict validator in both spellings.
+    class Movie(TD):
+        title: str
+
+    class Extended(Movie):
+        rating: int
+
+    validator = Validator.get(Extended)
+    assert isinstance(validator, collections.IsTypedDict)
+    validator({"title": "a", "rating": 5})
+    with pytest.raises(collections.ValidationError):
+        validator({"title": "a"})
+
+
+@pytest.mark.parametrize("TD", [tx.TypedDict, std_typing.TypedDict])
+def test_inherited_totality_in_either_spelling(TD: tx.Any) -> None:
+    class Base(TD, total=False):
+        optional_key: int
+
+    class Child(Base):
+        required_key: int
+
+    validator = Validator.get(Child)
+    validator({"required_key": 1})
+    with pytest.raises(collections.ValidationError, match="required_key"):
+        validator({"optional_key": 1})

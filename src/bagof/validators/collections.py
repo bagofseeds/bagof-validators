@@ -28,6 +28,7 @@ from bagof.core.magic import (
     safe_get_args,
     safe_get_origin,
     safe_isinstance,
+    typeddict_required_keys,
     unwrap,
 )
 from bagof.hints.typevars.co import ITERABLE, MAPPING, SEQUENCE, TUPLE
@@ -303,13 +304,10 @@ class IsTypedDict(IsMapping[MAPPING], register=tx.TypedDict):
         annots = tx.get_type_hints(origin, include_extras=True)
         if extra_items is getattr(tx, "NoExtraItems", tx.Any):
             extra_items = tx.Any
-        # `__required_keys__` is the canonical answer, and the only one
-        # that survives both an `Annotated` wrapper (where the origin is
-        # `Annotated`, not `Required`/`NotRequired`) and inheritance from
-        # bases declared with a different `total=`.
-        required = getattr(origin, "__required_keys__", None)
-        if required is None:  # pragma: no cover - every TypedDict has it
-            required = frozenset(annots)
+        # Shared with the sibling packages, so all three agree -- and it
+        # falls back to `__total__` where the class has no
+        # `__required_keys__`, which is `typing.TypedDict` before 3.9.
+        required = typeddict_required_keys(origin)
 
         # Check explicitly defined keys
         for key, arg in annots.items():
