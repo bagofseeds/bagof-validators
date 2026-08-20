@@ -3,6 +3,9 @@
 __all__ = [
     "IsIterable",
     "IsSequence",
+    "IsSet",
+    "IsFrozenSet",
+    "IsMutableSet",
     "IsMapping",
     "IsTupleIsh",
     "IsTuple",
@@ -66,10 +69,10 @@ class IsIterable(Validator[ITERABLE], register=abc.Iterable):
 
     !!! note
         When parameterized (e.g. `Iterable[int]`), each element is
-        validated against the argument type. This requires the value
-        to be an [`abc.Sequence`][] (e.g. a `list`), since a one-shot
-        iterator or generator cannot be safely re-validated; a bare
-        generator raises a `TypeValidationError` in that case.
+        validated against the argument type. A one-shot iterator or
+        generator cannot be checked this way -- walking it would consume
+        the value being validated -- so it raises a
+        `TypeValidationError` instead.
     """
 
     DEFAULT = abc.Iterable
@@ -78,9 +81,13 @@ class IsIterable(Validator[ITERABLE], register=abc.Iterable):
         super().__call__(value)  # check type
         if self.args:
 
-            if not safe_isinstance(value, abc.Sequence):
+            if safe_isinstance(value, abc.Iterator):
+                # A one-shot iterator yields itself from `__iter__`, so
+                # walking it to check elements would consume the value
+                # being validated. Anything else finite and re-iterable
+                # (a set, a mapping's view, a range) is fair game.
                 raise self.type_error(
-                    value, "Cannot validate generator arguments",
+                    value, "Cannot validate the elements of an iterator",
                 )
 
             arg_validator = Validator.get(self.args[0])
@@ -99,6 +106,32 @@ class IsSequence(IsIterable[SEQUENCE], register=abc.Sequence):
 
     DEFAULT = abc.Sequence
     FALLBACK = list
+
+
+class IsSet(IsIterable[ITERABLE], register=abc.Set):
+    """
+    Validator for [`Set`][collections.abc.Set].
+
+    A set is finite and re-iterable, so a parameterized hint
+    (e.g. `Set[int]`) checks every member.
+    """
+
+    DEFAULT = abc.Set
+    FALLBACK = frozenset
+
+
+class IsFrozenSet(IsSet[ITERABLE], register=frozenset):
+    """Validator for [`frozenset`][]."""
+
+    DEFAULT = frozenset
+    FALLBACK = frozenset
+
+
+class IsMutableSet(IsSet[ITERABLE], register=(abc.MutableSet, set)):
+    """Validator for [`MutableSet`][collections.abc.MutableSet]."""
+
+    DEFAULT = abc.MutableSet
+    FALLBACK = set
 
 
 class IsMapping(Validator[MAPPING], register=abc.Mapping):
