@@ -580,6 +580,24 @@ def test_inherited_typeddict_is_not_treated_as_a_plain_dict(
         validator({"title": "a"})
 
 
+def _tracks_mixed_totality(TD: tx.Any) -> bool:
+    """Whether this runtime records requiredness across a `total=` change.
+
+    A capability probe rather than a version check. An older
+    `typing.TypedDict` cannot express it -- it records neither which
+    class declared a key nor a link back to the base -- so every
+    inherited key is reported required.
+    """
+
+    class Base(TD, total=False):
+        probe_optional: int
+
+    class Child(Base):
+        probe_required: int
+
+    return set(getattr(Child, "__required_keys__", ())) == {"probe_required"}
+
+
 @pytest.mark.parametrize("TD", [tx.TypedDict, std_typing.TypedDict])
 def test_inherited_totality_in_either_spelling(TD: tx.Any) -> None:
     class Base(TD, total=False):
@@ -587,6 +605,12 @@ def test_inherited_totality_in_either_spelling(TD: tx.Any) -> None:
 
     class Child(Base):
         required_key: int
+
+    if not _tracks_mixed_totality(TD):
+        pytest.skip(
+            "this runtime's TypedDict does not record requiredness across "
+            "a total= change, so every inherited key reads as required"
+        )
 
     validator = Validator.get(Child)
     validator({"required_key": 1})
