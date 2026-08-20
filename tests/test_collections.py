@@ -269,3 +269,36 @@ def test_has_length_invalid(length: int, hint: tx.Any, value: tx.Any) -> None:
     validator = collections.HasLength(length, hint)
     with pytest.raises(collections.ValidationError):
         validator(value)
+
+
+# ----------------------------------------------------------------------
+# Error messages
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "index,expected",
+    [
+        (0, "1st"), (1, "2nd"), (2, "3rd"), (3, "4th"),  # codespell:ignore nd
+        (10, "11th"), (11, "12th"), (12, "13th"),
+        (20, "21st"), (21, "22nd"), (22, "23rd"),  # codespell:ignore nd
+        (100, "101st"),
+    ],
+)
+def test_ordinal(index: int, expected: str) -> None:
+    assert collections._ordinal(index) == expected
+
+
+def test_element_index_matches_the_human_position() -> None:
+    # The suffix table used to be applied to the zero-based `enumerate`
+    # index, so the second element was reported as the "1st".
+    with pytest.raises(collections.ValidationError, match="3rd element"):
+        collections.IsIterable(tx.List[int])([1, 2, "x"])
+    with pytest.raises(collections.ValidationError, match="1st element"):
+        collections.IsTuple(tx.Tuple[int, int])(("x", 2))
+
+
+def test_mapping_error_reports_the_mapping_not_its_items_view() -> None:
+    with pytest.raises(collections.ValidationError) as info:
+        collections.IsMapping(tx.Mapping[str, int])({"a": "x"})
+    assert info.value.value == {"a": "x"}

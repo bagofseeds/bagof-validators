@@ -26,6 +26,16 @@ from .base import Validator
 from .exceptions import ValidationError
 
 
+def _ordinal(index: int) -> str:
+    """`0` -> `"1st"`, `1` -> `"2nd"`, `20` -> `"21st"`, ..."""
+    n = index + 1
+    if n % 100 in (11, 12, 13):
+        return f"{n}th"
+    return "{}{}".format(
+        n, {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")  # codespell:ignore nd
+    )
+
+
 class IsIterable(Validator[ITERABLE], register=abc.Iterable):
     """
     Validator for [`abc.Iterable`][].
@@ -54,13 +64,9 @@ class IsIterable(Validator[ITERABLE], register=abc.Iterable):
                 try:
                     arg_validator(item)
                 except ValidationError as e:
-                    th = {
-                        1: "st",
-                        2: "nd",  # codespell:ignore-next-line nd
-                        3: "rd"
-                    }.get(i, "th")
                     raise self.value_error(
-                        value, f"Iterable's {i}{th} element is not valid.",
+                        value,
+                        f"Iterable's {_ordinal(i)} element is not valid.",
                     ) from e
 
 
@@ -83,10 +89,13 @@ class IsMapping(Validator[MAPPING], register=abc.Mapping):
             key_hint, val_hint = self.args
             key_validator = Validator.get(key_hint)
             val_validator = Validator.get(val_hint)
-            if safe_isinstance(value, abc.Mapping):
-                value = value.items()
+            # Iterate over a separate name: `value` is what the errors
+            # below report, and it must stay the mapping the caller
+            # passed rather than becoming its items view.
+            items = value.items() if safe_isinstance(value, abc.Mapping) \
+                else value
 
-            for k, v in value:
+            for k, v in items:
 
                 try:
                     key_validator(k)
@@ -140,13 +149,9 @@ class IsTupleIsh(Validator[TUPLE]):
                 try:
                     validator(val)
                 except ValidationError as e:
-                    th = {
-                        1: "st",
-                        2: "nd",  # codespell:ignore-next-line nd
-                        3: "rd"
-                    }.get(i, "th")
                     raise self.value_error(
-                        value, f"Tuple's {i}{th} element is not valid.",
+                        value,
+                        f"Tuple's {_ordinal(i)} element is not valid.",
                     ) from e
 
         else:
