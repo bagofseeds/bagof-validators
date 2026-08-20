@@ -199,6 +199,56 @@ def test_literal_invalid(hint: tx.Any, value: tx.Any) -> None:
         validator(value)
 
 
+@pytest.mark.parametrize(
+    "hint,value",
+    [
+        # PEP 586: a literal matches by type as well as by value, so an
+        # equal value of another type is not a member.
+        (tx.Literal[1], True),
+        (tx.Literal[1], 1.0),
+        (tx.Literal[0], False),
+        (tx.Literal[True], 1),
+        (tx.Literal["a"], b"a"),
+    ],
+)
+def test_literal_matches_by_type_as_well_as_value(
+    hint: tx.Any, value: tx.Any
+) -> None:
+    with pytest.raises(TypeValidationError):
+        common.IsLiteral(hint)(value)
+
+
+@pytest.mark.parametrize(
+    "hint,value", [(tx.Literal[1], 1), (tx.Literal[True], True)]
+)
+def test_literal_still_accepts_the_exact_type(
+    hint: tx.Any, value: tx.Any
+) -> None:
+    common.IsLiteral(hint)(value)
+
+
+def test_literal_agrees_with_ishintstance() -> None:
+    # bags
+    from bagof.core.magic import ishintstance
+
+    hint = tx.Literal[1, "a", None]
+    for value in (1, "a", None, True, 1.0, 2, "b", b"a"):
+        expected = ishintstance(value, hint)
+        try:
+            common.IsLiteral(hint)(value)
+            actual = True
+        except ValidationError:
+            actual = False
+        assert actual is expected, value
+
+
+def test_literal_does_not_choke_on_a_non_boolean_eq() -> None:
+    numpy = pytest.importorskip("numpy")
+    # `value in self.args` evaluated `__eq__`, which raises for an array.
+    with pytest.raises(TypeValidationError):
+        common.IsLiteral(tx.Literal[1])(numpy.array([1, 2]))
+
+
 def test_literal_bare_hint_accepts_nothing() -> None:
     # A bare `Literal` has no arguments, so nothing is valid.
     with pytest.raises(TypeValidationError):
