@@ -1,5 +1,6 @@
 # stdlib
 import collections as std_collections
+from collections import abc
 
 # dependencies
 import pytest
@@ -55,19 +56,54 @@ def test_iterable_valid(hint: tx.Any, value: tx.Any) -> None:
 
 
 @pytest.mark.parametrize(
-    "hint,value",
+    "hint,value_factory",
     [
-        (tx.Iterable[int], (i for i in range(1, 4))),
-        (tx.Iterable[int], {1: "a", 2: "b", 3: "c"}),
-        (tx.Iterable[str], {"a": 1, "b": 2, "c": 3}),
+        (tx.Iterable[int], lambda: (i for i in range(1, 4))),
+        (tx.Iterable[int], lambda: iter([1, 2, 3])),
+        (tx.Iterable[int], lambda: map(int, "123")),
     ]
 )
-def test_iterable_impossible(hint: tx.Any, value: tx.Any) -> None:
-    # These values are iterators, but they get consumed when iterated over,
-    # so we cannot validate their elements.
+def test_iterable_impossible(
+    hint: tx.Any, value_factory: tx.Callable[[], tx.Any]
+) -> None:
+    # A one-shot iterator yields itself from `__iter__`, so walking it to
+    # check elements would consume the value being validated.
     validator = collections.IsIterable(hint)
     with pytest.raises(collections.ValidationError):
-        validator(value)
+        validator(value_factory())
+
+
+@pytest.mark.parametrize(
+    "hint,value",
+    [
+        # Iterating a mapping yields its keys, so a dict with int keys is
+        # a valid `Iterable[int]` -- and it is re-iterable, so the
+        # elements can actually be checked.
+        (tx.Iterable[int], {1: "a", 2: "b", 3: "c"}),
+        (tx.Iterable[str], {"a": 1, "b": 2, "c": 3}),
+        (tx.Iterable[int], {1, 2, 3}),
+        (tx.Iterable[int], frozenset({1, 2, 3})),
+        (tx.Iterable[int], range(3)),
+    ]
+)
+def test_iterable_checks_any_reiterable_value(
+    hint: tx.Any, value: tx.Any
+) -> None:
+    collections.IsIterable(hint)(value)
+
+
+@pytest.mark.parametrize(
+    "hint,value",
+    [
+        (tx.Iterable[str], {1: "a"}),
+        (tx.Iterable[int], {"a", "b"}),
+    ]
+)
+def test_iterable_rejects_bad_elements_of_a_reiterable_value(
+    hint: tx.Any, value: tx.Any
+) -> None:
+    with pytest.raises(collections.ValidationError):
+        collections.IsIterable(hint)(value)
 
 
 @pytest.mark.parametrize(
@@ -336,3 +372,54 @@ def test_mapping_args_helper() -> None:
         str, int
     )
     assert collections._mapping_args((str,), dict) == (str, tx.Any)
+
+
+# ----------------------------------------------------------------------
+# IsSet
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "hint,value",
+    [
+        (tx.Set[int], {1, 2}),
+        (tx.Set[int], set()),
+        (tx.FrozenSet[int], frozenset({1, 2})),
+        (tx.AbstractSet[str], {"a"}),
+        (set, {1, "a"}),
+        (frozenset, frozenset()),
+    ],
+)
+def test_set_valid(hint: tx.Any, value: tx.Any) -> None:
+    # A parametrised set used to fall through to `IsIterable`, which
+    # demanded an `abc.Sequence` -- so every one of these raised.
+    Validator.get(hint)(value)
+
+
+@pytest.mark.parametrize(
+    "hint,value",
+    [
+        (tx.Set[int], {"a"}),
+        (tx.Set[int], {1, "a"}),
+        (tx.FrozenSet[int], frozenset({"a"})),
+        (tx.Set[int], [1, 2]),
+    ],
+)
+def test_set_invalid(hint: tx.Any, value: tx.Any) -> None:
+    with pytest.raises(collections.ValidationError):
+        Validator.get(hint)(value)
+
+
+@pytest.mark.parametrize(
+    "hint,cls",
+    [
+        (abc.Set, collections.IsSet),
+        (tx.Set[int], collections.IsMutableSet),
+        (frozenset, collections.IsFrozenSet),
+        (set, collections.IsMutableSet),
+        (abc.MutableSet, collections.IsMutableSet),
+    ],
+)
+def test_set_is_registered(hint: tx.Any, cls: tx.Any) -> None:
+    assert isinstance(Validator.get(hint), cls)
+
