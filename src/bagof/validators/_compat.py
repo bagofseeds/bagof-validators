@@ -4,6 +4,8 @@ import typing_extensions as tx
 if tx.TYPE_CHECKING:
     from types import NoneType, UnionType
 
+    UNION_TYPES = (tx.Union, UnionType)
+
 else:
     try:
         from types import NoneType
