@@ -16,7 +16,7 @@ from bagof.hints.typevars.co import STR
 from .common import IsAnnotated, Validator
 
 
-@IsAnnotated.register(re.Pattern)
+@IsAnnotated.register_metadata(re.Pattern)
 class MatchesRegex(Validator[STR]):
     """Validator for strings that match a regex pattern."""
 

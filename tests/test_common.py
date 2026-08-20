@@ -509,3 +509,37 @@ def test_annotated_registry() -> None:
 def test_annotated_is_registered() -> None:
     hint = tx.Annotated[int, "meta"]
     assert isinstance(Validator.get(hint), common.IsAnnotated)
+
+
+def test_register_metadata_is_distinct_from_register() -> None:
+    # `register` means "register for a type hint" everywhere else, and a
+    # bare `@IsAnnotated.register` used to silently register the
+    # decorated class as a metadata *key*.
+    class Marker:
+        pass
+
+    @common.IsAnnotated.register_metadata(Marker)
+    class MarkedValidator(Validator[tx.Any]):
+        DEFAULT = tx.Any
+
+        def __init__(self, marker: tx.Any = None) -> None:
+            super().__init__(tx.Any)
+            self.marker = marker
+
+        def __call__(self, value: tx.Any) -> None:
+            if value != 42:
+                raise self.value_error(value, "Not marked.")
+
+    try:
+        assert common.IsAnnotated._REGISTRY[Marker] is MarkedValidator
+        assert Marker not in VALIDATORS
+        common.IsAnnotated(tx.Annotated[int, Marker()])(42)
+    finally:
+        common.IsAnnotated._REGISTRY.pop(Marker, None)
+
+
+def test_register_alias_still_works() -> None:
+    assert (
+        common.IsAnnotated.register.__func__
+        is common.IsAnnotated.register_metadata.__func__
+    )
