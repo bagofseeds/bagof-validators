@@ -127,10 +127,16 @@ class IsAnnotated(Validator[T], register=tx.Annotated):
     _REGISTRY: ValidatorRegistry = {}
 
     @classmethod
-    def register(cls, *hints: tx.Unpack[tx.Tuple[tx.Any]]) -> ClassDecorator:
+    def register_metadata(
+        cls, *hints: tx.Unpack[tx.Tuple[tx.Any, ...]]
+    ) -> ClassDecorator:
         """
         Decorator to register a validator class for one or more
         `Annotated` metadata hints (e.g. [`re.Pattern`][]).
+
+        Distinct from [`Validator.register`][], which registers a
+        validator for a *type hint* in the global registry; this one
+        registers it for a piece of `Annotated` **metadata**.
 
         Parameters
         ----------
@@ -151,6 +157,11 @@ class IsAnnotated(Validator[T], register=tx.Annotated):
             return validator_cls
 
         return decorator
+
+    # Deprecated alias. `register` means "register for a type hint"
+    # everywhere else, and a bare `@IsAnnotated.register` used to
+    # silently register the decorated class as a metadata *key*.
+    register = register_metadata
 
     @classmethod
     def _get_validator(cls, hint: tx.Any) -> tx.Optional[Validator]:
