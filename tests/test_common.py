@@ -373,6 +373,49 @@ def test_annotated_with_validator_class() -> None:
         validator(-1)
 
 
+@pytest.mark.parametrize(
+    "cls,missing",
+    [
+        ("HasLength", "length"),
+        ("IsInRange", "min_value"),
+        ("IsGreaterThan", "threshold"),
+        ("MatchesRegex", "pattern"),
+    ],
+)
+def test_annotated_validator_class_needing_config_raises(
+    cls: str, missing: str
+) -> None:
+    # bags
+    from bagof.validators.collections import HasLength
+    from bagof.validators.numbers import IsGreaterThan, IsInRange
+    from bagof.validators.strings import MatchesRegex
+
+    lookup = {
+        "HasLength": HasLength,
+        "IsInRange": IsInRange,
+        "IsGreaterThan": IsGreaterThan,
+        "MatchesRegex": MatchesRegex,
+    }
+    # Passed positionally, the annotated type used to be bound as the
+    # validator's own first argument (a length, a threshold, a pattern),
+    # producing a validator that rejected everything with a nonsensical
+    # message. It must fail at construction instead, naming what it needs.
+    hint = tx.Annotated[int, lookup[cls]]
+    with pytest.raises(TypeError, match=missing):
+        assert common.IsAnnotated(hint).validators
+
+
+def test_annotated_validator_class_taking_hint_first_still_works() -> None:
+    # bags
+    from bagof.validators.numbers import IsPositive
+
+    validator = common.IsAnnotated(tx.Annotated[int, IsPositive])
+    assert validator.validators[0].hint is int
+    validator(5)
+    with pytest.raises(ValueValidationError):
+        validator(-5)
+
+
 def test_annotated_composable_validator_keeps_type_check() -> None:
     # bags
     from bagof.validators.numbers import IsPositive

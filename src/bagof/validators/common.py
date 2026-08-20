@@ -172,7 +172,15 @@ class IsAnnotated(Validator[T], register=tx.Annotated):
         validators = []
         for arg in safe_get_args(self.hint):
             if safe_issubclass(arg, Validator):
-                arg = arg(wrapped_type)
+                # Bind by keyword. Not every validator takes `hint` first
+                # -- `HasLength(length, ...)`, `IsInRange(min, max, ...)`,
+                # the comparators and `MatchesRegex(pattern, ...)` all take
+                # their own configuration there -- and passing positionally
+                # silently bound the annotated type as that argument. By
+                # keyword, such a class raises a `TypeError` naming the
+                # argument it is missing, which points at the real fix:
+                # write an instance rather than the bare class.
+                arg = arg(hint=wrapped_type)
             if not safe_isinstance(arg, Validator):
                 # Look into annotation registry
                 arg = self._get_validator(arg)
