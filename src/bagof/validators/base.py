@@ -141,9 +141,12 @@ class Validator(MagicHint[T], metaclass=ValidatorMetaclass):
 
     def _wrap_validator(self, validator: tx.Callable) -> tx.Callable:
         """
-        A wrapper that wraps a validator to catch errors and raise a
-        [`ValidationError`][] instead. Defined here so that subclasses
-        to not need to each implement this.
+        Wrap a validator so that a plain [`TypeError`][] or
+        [`ValueError`][] raised inside it surfaces as a
+        [`ValidationError`][], with the original attached as its cause.
+
+        A [`ValidationError`][] raised by the wrapped validator passes
+        through unchanged.
         """
         return _trywrap_validator(validator, self.value_error)
 
@@ -316,6 +319,13 @@ def _trywrap_validator(
     def wrapped(value: T) -> None:
         try:
             return validator(value)
+        except ValidationError:
+            # Already the right kind of error: re-raise it untouched, so
+            # its specific type and its `causes` survive. `TypeError` and
+            # `ValueError` are the base classes of `TypeValidationError`
+            # and `ValueValidationError`, so without this the `except`
+            # below would swallow and downgrade every real failure.
+            raise
         except (TypeError, ValueError) as e:
             _error = error
             if not safe_isinstance(_error, BaseException):

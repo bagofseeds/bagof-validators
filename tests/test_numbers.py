@@ -254,3 +254,55 @@ def test_in_range_error_message_includes_bounds() -> None:
     with pytest.raises(ValueValidationError) as exc:
         numbers.IsInRange(0, 1)(2)
     assert str(exc.value).startswith("IsInRange(0, 1):")
+
+
+# ----------------------------------------------------------------------
+# Non-orderable values
+# ----------------------------------------------------------------------
+
+
+ORDERING_VALIDATORS = [
+    numbers.IsPositive(),
+    numbers.IsNegative(),
+    numbers.IsNonNegative(),
+    numbers.IsNonPositive(),
+    numbers.IsLessThan(0),
+    numbers.IsLessEqual(0),
+    numbers.IsGreaterThan(0),
+    numbers.IsGreaterEqual(0),
+    numbers.IsInRange(0, 1),
+    numbers.IsInRange(0, 1, inclusive=False),
+    numbers.IsInRange(0, 1, inclusive=(False, True)),
+]
+
+
+@pytest.mark.parametrize("validator", ORDERING_VALIDATORS)
+def test_ordering_validators_reject_a_complex_value(
+    validator: tx.Any,
+) -> None:
+    # `IsNumber` accepts every `numbers.Number`, which includes complex --
+    # and complex numbers do not order, so the comparison used to raise a
+    # bare `TypeError` that a caller catching `ValidationError` misses.
+    with pytest.raises(ValueValidationError, match="not orderable"):
+        validator(1 + 2j)
+
+
+def test_wrapped_validator_preserves_a_validation_error() -> None:
+    # `TypeValidationError` and `ValueValidationError` inherit the two
+    # builtins the wrapper catches, so without an explicit pass-through it
+    # would downgrade every real failure to a generic value error.
+    wrapped = Validator(int)._wrap_validator(numbers.IsPositive())
+    with pytest.raises(TypeValidationError):
+        wrapped("x")
+    with pytest.raises(ValueValidationError):
+        wrapped(-5)
+
+
+def test_wrapped_validator_converts_a_bare_builtin() -> None:
+    def raises_type_error(value: tx.Any) -> None:
+        raise TypeError("something plain")
+
+    wrapped = Validator(int)._wrap_validator(raises_type_error)
+    with pytest.raises(ValueValidationError) as info:
+        wrapped(1)
+    assert isinstance(info.value.__cause__, TypeError)
