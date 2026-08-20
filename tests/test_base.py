@@ -355,3 +355,24 @@ def test_trywrap_validator_error_kinds(error: tx.Any) -> None:
     wrapped = base._trywrap_validator(failing, error)
     with pytest.raises(ValueValidationError):
         wrapped(1)
+
+
+def test_register_accepts_several_hints() -> None:
+    """`register` takes any number of hints, as its docstring says."""
+    # The overloads annotated `*hints` as `Unpack[Tuple[Any]]` -- a
+    # *one*-element tuple, so "exactly one hint" -- while the
+    # implementation and the docstring both say "one or more".
+    registry: tx.Dict[tx.Any, tx.Any] = {}
+
+    class _A:
+        pass
+
+    class _B:
+        pass
+
+    class Multi(Validator):
+        DEFAULT = _A
+
+    Validator.register(Multi, _A, _B, registry=registry)
+    assert registry[_A] is Multi
+    assert registry[_B] is Multi
