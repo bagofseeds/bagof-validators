@@ -1,3 +1,6 @@
+# stdlib
+import collections as std_collections
+
 # dependencies
 import pytest
 import typing_extensions as tx
@@ -7,6 +10,7 @@ from bagof.hints.typevars.co import INT, STR
 
 # locals
 from bagof.validators import collections
+from bagof.validators.base import Validator
 
 
 @pytest.mark.parametrize(
@@ -302,3 +306,33 @@ def test_mapping_error_reports_the_mapping_not_its_items_view() -> None:
     with pytest.raises(collections.ValidationError) as info:
         collections.IsMapping(tx.Mapping[str, int])({"a": "x"})
     assert info.value.value == {"a": "x"}
+
+
+# ----------------------------------------------------------------------
+# Single-argument mappings
+# ----------------------------------------------------------------------
+
+
+def test_counter_validates_its_keys() -> None:
+    # `Counter[K]` is a `Mapping[K, int]`, so it carries one type
+    # argument. Destructuring it as a pair used to raise a bare
+    # `ValueError: not enough values to unpack` from inside the validator.
+    validator = Validator.get(tx.Counter[str])
+    validator(std_collections.Counter())
+    validator(std_collections.Counter({"a": 1}))
+    with pytest.raises(collections.ValidationError, match="Key 1"):
+        validator(std_collections.Counter({1: 1}))
+
+
+def test_counter_values_are_checked_as_ints() -> None:
+    validator = Validator.get(tx.Counter[str])
+    with pytest.raises(collections.ValidationError):
+        validator({"a": "not an int"})
+
+
+def test_mapping_args_helper() -> None:
+    assert collections._mapping_args((str, int), dict) == (str, int)
+    assert collections._mapping_args((str,), std_collections.Counter) == (
+        str, int
+    )
+    assert collections._mapping_args((str,), dict) == (str, tx.Any)

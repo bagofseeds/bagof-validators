@@ -12,6 +12,7 @@ __all__ = [
 ]
 
 # stdlib
+import collections
 from collections import abc
 
 # dependencies
@@ -34,6 +35,29 @@ def _ordinal(index: int) -> str:
     return "{}{}".format(
         n, {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")  # codespell:ignore nd
     )
+
+
+def _mapping_args(
+    args: tx.Tuple[tx.Any, ...], origin: tx.Any
+) -> tx.Tuple[tx.Any, tx.Any]:
+    """
+    The (key, value) hints of a mapping, whatever arity it was written at.
+
+    Most mappings carry both (`Dict[str, int]`), but some fix their value
+    type and take only a key: `Counter[K]` is a `Mapping[K, int]`, and
+    destructuring it as a pair used to raise a bare `ValueError` from
+    inside the validator.
+    """
+    if len(args) >= 2:
+        return args[0], args[1]
+    implied = _IMPLIED_VALUE_HINT.get(origin, tx.Any)
+    return args[0], implied
+
+
+_IMPLIED_VALUE_HINT: tx.Dict[tx.Any, tx.Any] = {
+    collections.Counter: int,
+    abc.Set: tx.Any,
+}
 
 
 class IsIterable(Validator[ITERABLE], register=abc.Iterable):
@@ -86,7 +110,7 @@ class IsMapping(Validator[MAPPING], register=abc.Mapping):
     def __call__(self, value: MAPPING) -> None:
         super().__call__(value)  # check type
         if self.args:
-            key_hint, val_hint = self.args
+            key_hint, val_hint = _mapping_args(self.args, self.origin)
             key_validator = Validator.get(key_hint)
             val_validator = Validator.get(val_hint)
             # Iterate over a separate name: `value` is what the errors
