@@ -22,12 +22,44 @@ from collections import abc
 import typing_extensions as tx
 
 # bags
-from bagof.core.magic import UNSET, safe_get_origin, safe_isinstance, unwrap
+from bagof.core.magic import (
+    UNSET,
+    safe_get_args,
+    safe_get_origin,
+    safe_isinstance,
+    unwrap,
+)
 from bagof.hints.typevars.co import ITERABLE, MAPPING, SEQUENCE, TUPLE
 
 # locals
 from .base import Validator
 from .exceptions import ValidationError
+
+_REQUIREDNESS = (tx.Required, tx.NotRequired)
+
+
+def _strip_requiredness(hint: tx.Any) -> tx.Any:
+    """
+    Remove a `Required` / `NotRequired` wrapper, inside or outside
+    `Annotated`.
+
+    Both nestings are legal (PEP 655), and typing keeps whichever was
+    written: `NotRequired[Annotated[int, "m"]]` unwraps normally, but
+    `Annotated[NotRequired[int], "m"]` has `Annotated` as its origin, so
+    the wrapper has to be stripped from inside -- keeping the metadata,
+    which may carry validators of its own.
+    """
+    inner = unwrap(hint, _REQUIREDNESS)
+    if inner is not hint:
+        return _strip_requiredness(inner)
+    if safe_get_origin(hint) is tx.Annotated:
+        args = safe_get_args(hint)
+        if args:
+            base, meta = args[0], args[1:]
+            stripped = unwrap(base, _REQUIREDNESS)
+            if stripped is not base:
+                return tx.Annotated[(stripped,) + meta]
+    return hint
 
 
 def _ordinal(index: int) -> str:
@@ -247,26 +279,28 @@ class IsTypedDict(IsMapping[MAPPING], register=tx.TypedDict):
 
         # Get typeddict options
         origin = self.origin
-        total = getattr(origin, "__total__", True)
         extra_items = getattr(origin, "__extra_items__", tx.Any)
         closed = getattr(origin, "__closed__", False)
         annots = tx.get_type_hints(origin, include_extras=True)
         if extra_items is getattr(tx, "NoExtraItems", tx.Any):
             extra_items = tx.Any
+        # `__required_keys__` is the canonical answer, and the only one
+        # that survives both an `Annotated` wrapper (where the origin is
+        # `Annotated`, not `Required`/`NotRequired`) and inheritance from
+        # bases declared with a different `total=`.
+        required = getattr(origin, "__required_keys__", None)
+        if required is None:  # pragma: no cover - every TypedDict has it
+            required = frozenset(annots)
 
         # Check explicitly defined keys
         for key, arg in annots.items():
             if key not in value:
-                arg_origin = safe_get_origin(arg)
-                if (
-                    (total and arg_origin is not tx.NotRequired) or
-                    (not total and arg_origin is tx.Required)
-                ):
+                if key in required:
                     raise self.value_error(
                         value, f"Missing required key {key!r}"
                     )
             else:
-                arg = unwrap(arg, (tx.Required, tx.NotRequired))
+                arg = _strip_requiredness(arg)
                 validator = Validator.get(arg)
                 try:
                     validator(value[key])
