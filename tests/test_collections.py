@@ -423,3 +423,74 @@ def test_set_invalid(hint: tx.Any, value: tx.Any) -> None:
 def test_set_is_registered(hint: tx.Any, cls: tx.Any) -> None:
     assert isinstance(Validator.get(hint), cls)
 
+# ----------------------------------------------------------------------
+# TypedDict requiredness
+# ----------------------------------------------------------------------
+
+
+class _Wrapped(tx.TypedDict):
+    # PEP 655 allows either nesting, and typing keeps whichever was
+    # written -- `Annotated[NotRequired[int], ...]` has `Annotated` as its
+    # origin, so a structural check for `NotRequired` misses it.
+    outside: tx.Annotated[tx.NotRequired[int], "meta"]
+    inside: tx.NotRequired[tx.Annotated[int, "meta"]]
+    plain: int
+
+
+class _OptionalBase(tx.TypedDict, total=False):
+    optional_key: int
+
+
+class _RequiredChild(_OptionalBase):
+    required_key: int
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        {"plain": 1},
+        {"plain": 1, "outside": 2},
+        {"plain": 1, "inside": 2},
+        {"plain": 1, "outside": 2, "inside": 3},
+    ],
+)
+def test_typeddict_annotated_notrequired_is_optional(value: tx.Any) -> None:
+    collections.IsTypedDict(_Wrapped)(value)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        {"outside": 1},                      # `plain` is required
+        {"plain": 1, "outside": "x"},        # wrong type under Annotated
+        {"plain": 1, "inside": "x"},
+    ],
+)
+def test_typeddict_annotated_notrequired_still_type_checked(
+    value: tx.Any,
+) -> None:
+    with pytest.raises(collections.ValidationError):
+        collections.IsTypedDict(_Wrapped)(value)
+
+
+def test_typeddict_requiredness_follows_inheritance() -> None:
+    # `__total__` is read from the leaf class, so applying it to inherited
+    # keys reports a `total=False` base key as required.
+    collections.IsTypedDict(_RequiredChild)({"required_key": 1})
+    with pytest.raises(collections.ValidationError, match="required_key"):
+        collections.IsTypedDict(_RequiredChild)({"optional_key": 1})
+
+
+@pytest.mark.parametrize(
+    "hint,expected",
+    [
+        (tx.NotRequired[int], int),
+        (tx.Required[int], int),
+        (tx.Annotated[tx.NotRequired[int], "m"], tx.Annotated[int, "m"]),
+        (tx.NotRequired[tx.Annotated[int, "m"]], tx.Annotated[int, "m"]),
+        (int, int),
+        (tx.Annotated[int, "m"], tx.Annotated[int, "m"]),
+    ],
+)
+def test_strip_requiredness(hint: tx.Any, expected: tx.Any) -> None:
+    assert collections._strip_requiredness(hint) == expected
