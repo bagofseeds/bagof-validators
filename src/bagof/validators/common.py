@@ -15,6 +15,7 @@ import typing_extensions as tx
 # bags
 from bagof.core.magic import (
     MultipleCauses,
+    ishintstance,
     safe_get_args,
     safe_isinstance,
     safe_issubclass,
@@ -75,12 +76,23 @@ class IsUnion(Validator[T], register=(tx.Union, UnionType)):
 
 
 class IsLiteral(Validator[T], register=tx.Literal):
-    """Validator for [`Literal`][typing.Literal]."""
+    """
+    Validator for [`Literal`][typing.Literal].
+
+    A value matches by **type as well as value**, as
+    [PEP 586](https://peps.python.org/pep-0586/) specifies: `True` is not
+    a valid `Literal[1]` even though `True == 1`, and neither is `1.0`.
+    """
 
     DEFAULT = tx.Literal
 
     def __call__(self, value: T) -> None:
-        if value not in self.args:
+        # `ishintstance` already implements PEP 586 matching (including
+        # keeping a NaN literal comparable with itself), so defer to it
+        # rather than re-deriving membership here -- `value in self.args`
+        # compares with `==`, which conflates `True` with `1`, and blows
+        # up on a value whose `__eq__` is not boolean (e.g. an array).
+        if not ishintstance(value, self.hint):
             raise self.type_error(
                 value, "Not compatible with any of the literals",
             )
