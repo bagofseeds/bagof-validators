@@ -48,43 +48,64 @@ class IsNumber(Validator[NUMBER], register=numbers.Number):
         super().__call__(value)  # check type
 
 
-class IsPositive(IsNumber[NUMBER]):
+class _OrderedValidator(IsNumber[NUMBER]):
+    """Base for validators that compare a value against a threshold."""
+
+    def _compare(self, test: tx.Callable[[], bool], value: NUMBER) -> bool:
+        """
+        Evaluate an ordering test, turning a non-orderable operand into a
+        [`ValueValidationError`][].
+
+        `IsNumber` accepts every [`Number`][numbers.Number], which
+        includes [`complex`][] -- and complex numbers do not order, so a
+        bare `value <= 0` raises a plain `TypeError` that a caller
+        catching `ValidationError` never sees.
+        """
+        try:
+            return test()
+        except TypeError as e:
+            raise self.value_error(
+                value, f"Value of type {type(value)} is not orderable."
+            ) from e
+
+
+class IsPositive(_OrderedValidator[NUMBER]):
     """Validator for positive numbers."""
 
     def __call__(self, value: NUMBER) -> None:
         super().__call__(value)
-        if value <= 0:
+        if self._compare(lambda: value <= 0, value):
             raise self.value_error(value, "Not a positive value.")
 
 
-class IsNegative(IsNumber[NUMBER]):
+class IsNegative(_OrderedValidator[NUMBER]):
     """Validator for negative numbers."""
 
     def __call__(self, value: NUMBER) -> None:
         super().__call__(value)
-        if value >= 0:
+        if self._compare(lambda: value >= 0, value):
             raise self.value_error(value, "Not a negative value.")
 
 
-class IsNonNegative(IsNumber[NUMBER]):
+class IsNonNegative(_OrderedValidator[NUMBER]):
     """Validator for non-negative numbers."""
 
     def __call__(self, value: NUMBER) -> None:
         super().__call__(value)
-        if value < 0:
+        if self._compare(lambda: value < 0, value):
             raise self.value_error(value, "Not a non-negative value.")
 
 
-class IsNonPositive(IsNumber[NUMBER]):
+class IsNonPositive(_OrderedValidator[NUMBER]):
     """Validator for non-positive numbers."""
 
     def __call__(self, value: NUMBER) -> None:
         super().__call__(value)
-        if value > 0:
+        if self._compare(lambda: value > 0, value):
             raise self.value_error(value, "Not a non-positive value.")
 
 
-class _ComparatorValidator(IsNumber[NUMBER]):
+class _ComparatorValidator(_OrderedValidator[NUMBER]):
 
     def __init__(
         self,
@@ -115,7 +136,7 @@ class IsLessThan(_ComparatorValidator[NUMBER]):
 
     def __call__(self, value: NUMBER) -> None:
         super().__call__(value)
-        if value >= self.threshold:
+        if self._compare(lambda: value >= self.threshold, value):
             raise self.value_error(value, f"Not less than {self.threshold!r}")
 
 
@@ -124,7 +145,7 @@ class IsLessEqual(_ComparatorValidator[NUMBER]):
 
     def __call__(self, value: NUMBER) -> None:
         super().__call__(value)
-        if value > self.threshold:
+        if self._compare(lambda: value > self.threshold, value):
             raise self.value_error(
                 value, f"Not less than or equal to {self.threshold!r}"
             )
@@ -135,7 +156,7 @@ class IsGreaterThan(_ComparatorValidator[NUMBER]):
 
     def __call__(self, value: NUMBER) -> None:
         super().__call__(value)
-        if value <= self.threshold:
+        if self._compare(lambda: value <= self.threshold, value):
             raise self.value_error(
                 value, f"Not greater than {self.threshold!r}."
             )
@@ -146,13 +167,13 @@ class IsGreaterEqual(_ComparatorValidator[NUMBER]):
 
     def __call__(self, value: NUMBER) -> None:
         super().__call__(value)
-        if value < self.threshold:
+        if self._compare(lambda: value < self.threshold, value):
             raise self.value_error(
                 value, f"Not greater than or equal to {self.threshold!r}."
             )
 
 
-class IsInRange(IsNumber[NUMBER]):
+class IsInRange(_OrderedValidator[NUMBER]):
     """
     Validator for numbers in a range.
 
@@ -208,16 +229,16 @@ class IsInRange(IsNumber[NUMBER]):
         super().__call__(value)
         mn, mx = self.min_value, self.max_value
         if all(self.inclusive):
-            test = (mn <= value <= mx)
+            test = self._compare(lambda: mn <= value <= mx, value)
             lb, ub = "[", "]"
         elif not any(self.inclusive):
-            test = (mn < value < mx)
+            test = self._compare(lambda: mn < value < mx, value)
             lb, ub = "(", ")"
         elif not self.inclusive[0]:
-            test = (mn < value <= mx)
+            test = self._compare(lambda: mn < value <= mx, value)
             lb, ub = "(", "]"
         else:
-            test = (mn <= value < mx)
+            test = self._compare(lambda: mn <= value < mx, value)
             lb, ub = "[", ")"
         if not test:
             raise self.value_error(
