@@ -494,3 +494,48 @@ def test_typeddict_requiredness_follows_inheritance() -> None:
 )
 def test_strip_requiredness(hint: tx.Any, expected: tx.Any) -> None:
     assert collections._strip_requiredness(hint) == expected
+
+
+# ----------------------------------------------------------------------
+# IsIterator
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "value_factory",
+    [
+        lambda: iter([1, 2]),
+        lambda: (i for i in range(3)),
+        lambda: map(int, "12"),
+        lambda: iter({}),
+    ],
+)
+def test_iterator_valid(value_factory: tx.Callable[[], tx.Any]) -> None:
+    # Previously routed to `IsIterable`, which refused an iterator
+    # outright -- so the validator rejected the factory's own default
+    # value for the same hint.
+    Validator.get(tx.Iterator[int])(value_factory())
+
+
+@pytest.mark.parametrize("value", [[1, 2], {1, 2}, "ab", 1, None])
+def test_iterator_invalid(value: tx.Any) -> None:
+    # A list is iterable but is not itself an iterator.
+    with pytest.raises(collections.ValidationError):
+        Validator.get(tx.Iterator[int])(value)
+
+
+def test_iterator_is_not_consumed_by_validation() -> None:
+    # The whole reason elements are not checked.
+    value = iter([1, 2, 3])
+    Validator.get(tx.Iterator[int])(value)
+    assert list(value) == [1, 2, 3]
+
+
+def test_iterator_elements_are_not_checked() -> None:
+    # Documented behaviour: the element type cannot be verified without
+    # destroying the value, so a mismatched iterator still passes.
+    Validator.get(tx.Iterator[int])(iter(["a", "b"]))
+
+
+def test_iterator_is_registered() -> None:
+    assert isinstance(Validator.get(tx.Iterator[int]), collections.IsIterator)

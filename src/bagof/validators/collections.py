@@ -3,6 +3,7 @@
 __all__ = [
     "IsIterable",
     "IsSequence",
+    "IsIterator",
     "IsSet",
     "IsFrozenSet",
     "IsMutableSet",
@@ -138,6 +139,24 @@ class IsSequence(IsIterable[SEQUENCE], register=abc.Sequence):
 
     DEFAULT = abc.Sequence
     FALLBACK = list
+
+
+class IsIterator(IsIterable[ITERABLE], register=abc.Iterator):
+    """
+    Validator for [`Iterator`][collections.abc.Iterator].
+
+    Only the container type is checked. An iterator yields itself from
+    `__iter__`, so walking it to check elements would consume the very
+    value being validated -- a parameterized hint like `Iterator[int]`
+    therefore passes any iterator, and its elements are left unchecked.
+    """
+
+    DEFAULT = abc.Iterator
+
+    def __call__(self, value: ITERABLE) -> None:
+        # Deliberately skip `IsIterable.__call__`: its element loop is
+        # what cannot be run here.
+        Validator(self.hint)(value)
 
 
 class IsSet(IsIterable[ITERABLE], register=abc.Set):
