@@ -14,8 +14,11 @@ import typing_extensions as tx  # noqa: I001
 from bagof.core.magic import (
     UNSET,
     MagicHint,
+    defer,
     get_from_registry,
+    is_forward_ref,
     ishintstance,
+    resolve_pending,
     safe_isinstance,
     safe_issubclass,
 )
@@ -197,6 +200,15 @@ class Validator(MagicHint[T], metaclass=ValidatorMetaclass):
             Defaults to the validator class's `DEFAULT` hint if none are
             given. When used as a bare decorator, the first "hint" is
             actually the validator class to register.
+
+            A [`ForwardRef`][typing.ForwardRef] key registers the object
+            it names lazily (see [`defer`][bagof.core.magic.defer]):
+            nothing is imported, and the key is resolved once that object
+            has been imported by someone else. The name is looked up
+            first relative to the registering class's module (or the
+            ref's `module=`), then as an absolute dotted path, so use the
+            real dotted path -- `ForwardRef("numpy.dtype")`, not an alias
+            only imported under `if TYPE_CHECKING:`.
         registry : ValidatorRegistry
             The registry to register the validator class in.
             Defaults to the global registry.
@@ -215,8 +227,14 @@ class Validator(MagicHint[T], metaclass=ValidatorMetaclass):
 
         def decorator(cls: tx.Type[Validator]) -> tx.Type[Validator]:
             hints_ = hints or (cls.DEFAULT,)
+            # Settle the resolvable lazy keys first, so that the later
+            # registration still wins, whichever kind of key each one is.
+            resolve_pending()
             for hint in hints_:
-                registry[hint] = cls
+                if is_forward_ref(hint):
+                    defer(registry, hint, cls, cls.__module__)
+                else:
+                    registry[hint] = cls
             return cls
 
         return decorator

@@ -1,9 +1,13 @@
+# stdlib
+import sys
+import types
+
 # dependencies
 import pytest
 import typing_extensions as tx
 
 # bags
-from bagof.core.magic import UNSET
+from bagof.core.magic import UNSET, pending
 
 # locals
 from bagof.validators import base, collections, misc, numbers, strings
@@ -376,3 +380,90 @@ def test_register_accepts_several_hints() -> None:
     Validator.register(Multi, _A, _B, registry=registry)
     assert registry[_A] is Multi
     assert registry[_B] is Multi
+
+
+# --- lazy ForwardRef keys ---------------------------------------------
+
+
+class _LazyRegistry(dict):
+    """A weakly-referenceable registry, so pending entries die with it."""
+
+
+def _fake_module(name: str, **attrs: tx.Any) -> types.ModuleType:
+    module = types.ModuleType(name)
+    module.__dict__.update(attrs)
+    return module
+
+
+def test_register_forward_ref_is_deferred(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = _LazyRegistry()
+    name = "_bagof_validators_fake_lazy"
+
+    class Thing:
+        pass
+
+    @Validator.register(tx.ForwardRef(f"{name}.Thing"), registry=registry)
+    class IsThing(Validator):
+        pass
+
+    # Not imported yet: nothing in the registry, the key is pending.
+    assert registry == {}
+    assert pending(registry) == [(__name__, f"{name}.Thing", IsThing)]
+    assert Validator.get_class(Thing, registry, None) is None
+
+    # Imported by someone else: resolved on the next lookup.
+    monkeypatch.setitem(sys.modules, name, _fake_module(name, Thing=Thing))
+    assert Validator.get_class(Thing, registry, None) is IsThing
+    assert registry == {Thing: IsThing}
+    assert pending(registry) == []
+
+
+def test_register_forward_ref_already_imported() -> None:
+    import fractions
+
+    registry = _LazyRegistry()
+
+    @Validator.register(tx.ForwardRef("fractions.Fraction"), registry=registry)
+    class IsFraction(Validator):
+        pass
+
+    assert registry == {fractions.Fraction: IsFraction}
+
+
+def test_register_forward_ref_relative_to_class_module() -> None:
+    registry = _LazyRegistry()
+
+    # `tx` is only an alias in this test module (not in `sys.modules`), so
+    # the name can only resolve relative to the registering class's module.
+    @Validator.register(tx.ForwardRef("tx.ForwardRef"), registry=registry)
+    class IsRef(Validator):
+        pass
+
+    assert registry == {tx.ForwardRef: IsRef}
+
+
+def test_register_plain_key_after_forward_ref_wins(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = _LazyRegistry()
+    name = "_bagof_validators_fake_order"
+
+    class Thing:
+        pass
+
+    monkeypatch.setitem(sys.modules, name, _fake_module(name))
+
+    @Validator.register(tx.ForwardRef(f"{name}.Thing"), registry=registry)
+    class Old(Validator):
+        pass
+
+    # The name becomes resolvable, then a newer plain-key registration.
+    sys.modules[name].Thing = Thing
+
+    @Validator.register(Thing, registry=registry)
+    class New(Validator):
+        pass
+
+    assert Validator.get_class(Thing, registry, None) is New

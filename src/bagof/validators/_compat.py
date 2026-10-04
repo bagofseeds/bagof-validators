@@ -18,18 +18,3 @@ else:
     except ImportError:  # pragma: no cover
         UnionType = tx.Union  # type: ignore[assignment]
         UNION_TYPES = (tx.Union,)
-
-if tx.TYPE_CHECKING:
-    import numpy as np
-    import numpy.typing as npt
-
-else:
-    try:
-        import numpy as np
-    except ImportError:  # pragma: no cover
-        np = None  # type: ignore[assignment]
-
-    try:
-        import numpy.typing as npt
-    except ImportError:  # pragma: no cover
-        npt = None  # type: ignore[assignment]
