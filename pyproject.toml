@@ -27,7 +27,7 @@ requires-python = ">=3.8"
 dependencies = [
     "typing_extensions >= 4.13",
     "bagof-hints ~= 0.1",
-    "bagof-core-magic ~= 0.1"
+    "bagof-core-magic ~= 0.2"
 ]
 
 [project.urls]
@@ -40,9 +40,12 @@ Repository = "https://github.com/bagofseeds/bagof-validators"
 test = [
     "pytest >= 7",
     "pytest-cov >= 4",
-    # Optional runtime dependency: the numpy validators are only tested
-    # when it is installed (see tests/test_numpy.py).
+    # Optional runtime dependencies: the numpy and dask validators are
+    # only tested when they are installed (see tests/test_numpy.py and
+    # tests/test_dask.py). cupy is deliberately absent: it needs a CUDA
+    # toolchain and cannot be installed on a CPU runner.
     "numpy",
+    "dask[array]",
 ]
 
 [build-system]
