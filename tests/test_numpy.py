@@ -64,3 +64,106 @@ def test_dtype_default_hint() -> None:
 def test_dtype_is_registered(hint: tx.Any) -> None:
     assert Validator.get_class(hint) is validators_numpy.IsDType
     assert isinstance(Validator.get(hint), validators_numpy.IsDType)
+
+
+# --- IsNDArray --------------------------------------------------------
+
+hints_numpy = pytest.importorskip("bagof.hints.numpy")
+ndarray, NDArray, hints_dtype = (
+    hints_numpy.ndarray, hints_numpy.NDArray, hints_numpy.dtype
+)
+L = tx.Literal
+
+
+def _shaped(*shape: tx.Any) -> tx.Any:
+    return ndarray[tx.Tuple[shape], hints_dtype[tx.Any]]
+
+
+def test_ndarray_is_registered() -> None:
+    assert Validator.get_class(np.ndarray) is validators_numpy.IsNDArray
+    assert Validator.get_class(NDArray[np.float64]) is (
+        validators_numpy.IsNDArray
+    )
+    assert "IsNDArray" in validators_numpy.__all__
+
+
+@pytest.mark.parametrize(
+    "hint,value",
+    [
+        (np.ndarray, np.zeros(3)),
+        (np.ndarray, np.zeros((2, 3), dtype=int)),
+        (NDArray, np.zeros(3)),
+        (NDArray[np.float64], np.zeros(3)),
+        (NDArray[float], np.zeros(3, dtype=np.float32)),
+        (NDArray[int], np.zeros(3, dtype=np.int8)),
+        (NDArray[np.number], np.zeros(3, dtype=np.complex64)),
+        (ndarray[tx.Any, hints_dtype[tx.Any]], np.zeros(())),
+        (ndarray[tx.Any, np.dtype], np.zeros(3, dtype=int)),
+        (_shaped(L[3]), np.zeros(3)),
+        (_shaped(L[4], L[4]), np.eye(4)),
+        (_shaped(int, L[1, 3]), np.zeros((5, 1))),
+        (_shaped(L[3], ...), np.zeros((3, 3, 3))),
+        (_shaped(tx.Unpack[tx.Tuple[int, ...]], L[3]), np.zeros((2, 4, 3))),
+        (_shaped(), np.zeros(())),
+    ],
+)
+def test_ndarray_valid(hint: tx.Any, value: tx.Any) -> None:
+    Validator.get(hint)(value)
+
+
+@pytest.mark.parametrize(
+    "hint,value",
+    [
+        (np.ndarray, [1, 2, 3]),
+        (np.ndarray, 1.0),
+        (np.ndarray, np.float64(1)),
+        (NDArray[np.float64], np.zeros(3, dtype=np.float32)),
+        (NDArray[float], np.zeros(3, dtype=int)),
+        (NDArray[int], [1, 2]),
+    ],
+)
+def test_ndarray_invalid_type(hint: tx.Any, value: tx.Any) -> None:
+    with pytest.raises(TypeValidationError):
+        Validator.get(hint)(value)
+
+
+@pytest.mark.parametrize(
+    "hint,value",
+    [
+        # a validator neither pads nor broadcasts
+        (_shaped(L[4], L[4]), np.zeros(4)),
+        (_shaped(L[4], L[4]), np.zeros((1, 4))),
+        (_shaped(L[4], L[4]), np.zeros((1, 4, 4))),
+        (_shaped(int, int), np.zeros(3)),
+        (_shaped(L[3], ...), np.zeros((3, 2))),
+        (_shaped(tx.Unpack[tx.Tuple[int, ...]], L[3]), np.zeros(())),
+        (_shaped(), np.zeros(1)),
+    ],
+)
+def test_ndarray_invalid_shape(hint: tx.Any, value: tx.Any) -> None:
+    from bagof.validators.exceptions import ValueValidationError
+
+    with pytest.raises(ValueValidationError, match="shape"):
+        Validator.get(hint)(value)
+
+
+def test_ndarray_subclass() -> None:
+    class MyArray(np.ndarray):
+        pass
+
+    validator = Validator.get(MyArray)
+    validator(np.zeros(3).view(MyArray))
+    with pytest.raises(TypeValidationError):
+        validator(np.zeros(3))
+
+
+def test_ndarray_rejects_device_arrays() -> None:
+    # Unlike the converter, a validator does not move arrays: an array of
+    # another library is not a numpy array.
+    class FakeCupyArray:
+        __cuda_array_interface__: dict = {}
+        shape = (3,)
+        dtype = np.dtype("float64")
+
+    with pytest.raises(TypeValidationError):
+        Validator.get(np.ndarray)(FakeCupyArray())

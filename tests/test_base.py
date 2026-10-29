@@ -376,3 +376,31 @@ def test_register_accepts_several_hints() -> None:
     Validator.register(Multi, _A, _B, registry=registry)
     assert registry[_A] is Multi
     assert registry[_B] is Multi
+
+
+def test_register_forward_ref(
+    registry: base.ValidatorRegistry, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A `ForwardRef` key is registered once the object it names has been
+    # imported -- and never imports it itself.
+    import sys
+    import types
+
+    from bagof.core.magic import clear_pending
+
+    class IsFoo(Validator[tx.Any]):
+        DEFAULT = Foo
+
+    try:
+        Validator.register(
+            IsFoo, tx.ForwardRef("_bagof_fake_lib.Thing"), registry=registry
+        )
+        assert registry == {}
+        assert "_bagof_fake_lib" not in sys.modules
+
+        module = types.ModuleType("_bagof_fake_lib")
+        module.Thing = Foo  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, "_bagof_fake_lib", module)
+        assert Validator.get_class(Foo, registry, None) is IsFoo
+    finally:
+        clear_pending(registry)
