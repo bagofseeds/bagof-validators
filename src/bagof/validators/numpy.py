@@ -1,9 +1,12 @@
 """Validators for numpy types (dtype, ndarray)."""
 
-__all__ = []
+__all__: list = []
 
 # dependencies
 import typing_extensions as tx
+
+# bags
+from bagof.core.magic import has_module, lazy_import
 
 # locals
 from ._arrays import ArrayValidator
@@ -13,27 +16,35 @@ if tx.TYPE_CHECKING:
     # Import the bare module so mkdocstrings resolves the `numpy.*`
     # cross-references in the docstrings below. Type-checking only.
     import numpy  # noqa: F401
-    import numpy as np
-    from bagof.hints.numpy import ndarray as _hint_ndarray
     from bagof.hints.numpy.typevars.co import DTYPE
-    from numpy import dtype, generic
 else:
-    try:
-        import numpy as np
-        from bagof.hints.numpy import ndarray as _hint_ndarray
-        from bagof.hints.numpy.typevars.co import DTYPE
-        from numpy import dtype, generic
-    except ImportError:  # pragma: no cover
-        np = _hint_ndarray = dtype = generic = None  # type: ignore
+    # The numpy typevars import numpy; use a plain one at runtime.
+    from bagof.hints.typevars.co import T as DTYPE
 
-if tx.TYPE_CHECKING or dtype is not None:
 
-    class IsDType(Validator[DTYPE], register=(dtype, generic)):
+# numpy is only imported once a numpy validator is actually used: the
+# registry keys are forward references, resolved once `numpy` (or the hint
+# module) has been imported by the caller -- see `Validator.register`.
+if tx.TYPE_CHECKING or has_module("numpy"):
+
+    class IsDType(
+        Validator[DTYPE],
+        register=(
+            tx.ForwardRef("numpy.dtype"),
+            tx.ForwardRef("numpy.generic"),
+        ),
+    ):
         """Validator for [`numpy.dtype`][numpy.dtype]."""
 
-        DEFAULT = dtype
+        DEFAULT = lazy_import("numpy.dtype")
 
-    class IsNDArray(ArrayValidator, register=(np.ndarray, _hint_ndarray)):
+    class IsNDArray(
+        ArrayValidator,
+        register=(
+            tx.ForwardRef("numpy.ndarray"),
+            tx.ForwardRef("bagof.hints.numpy.ndarray"),
+        ),
+    ):
         """
         Validator for [`numpy.ndarray`][].
 
@@ -41,9 +52,9 @@ if tx.TYPE_CHECKING or dtype is not None:
         (e.g. `ndarray[Tuple[Literal[3], int], dtype[float64]]`).
         """
 
-        DEFAULT = np.ndarray
-        SCALARS = np
-        ARRAY_TYPE = np.ndarray
-        HINT_TYPE = _hint_ndarray
+        DEFAULT = lazy_import("numpy.ndarray")
+        SCALARS = lazy_import("numpy")
+        ARRAY_TYPE = lazy_import("numpy.ndarray")
+        HINT_TYPE = lazy_import("bagof.hints.numpy.ndarray")
 
     __all__ += ["IsDType", "IsNDArray"]
