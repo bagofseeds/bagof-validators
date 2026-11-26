@@ -30,6 +30,7 @@ from .exceptions import (
     ValidationError,
     ValueValidationError,
 )
+from .reports import Report, _collect_report
 
 # typing
 
@@ -111,10 +112,67 @@ class Validator(MagicHint[T], metaclass=ValidatorMetaclass):
         if not ishintstance(value, self.hint):
             raise self.type_error(value, "Not a valid instance.")
 
+    def report(
+        self, value: T, *, location: tx.Iterable[tx.Hashable] = ()
+    ) -> Report:
+        """
+        Validate the given value, and return every problem found.
+
+        Unlike calling the validator, this does not stop at the first
+        failure: it walks the whole value, and returns a
+        [`Report`][bagof.validators.reports.Report] of every
+        [`Problem`][bagof.validators.reports.Problem], each with its
+        location in the value. See [`reports`][bagof.validators.reports]
+        for how the walk proceeds.
+
+        !!! example
+            ```pycon
+            >>> import typing_extensions as tx
+            >>> from bagof.validators import Validator
+            >>> validate = Validator.get(tx.Dict[str, tx.List[int]])
+            >>> report = validate.report({"a": [1, "x"], "b": 2})
+            >>> report.ok
+            False
+            >>> print(report)
+            2 problems (error: 2)
+            ['a'][1]: error: Not a valid instance.
+                expected int, found 'x'
+            ['b']: error: Not a valid instance.
+                expected list[int], found 2
+            ```
+
+        Parameters
+        ----------
+        value : T
+            The value to validate.
+        location : Iterable[Hashable]
+            Where the value is, prepended to every problem's location --
+            e.g. `(filename,)`, to merge the reports of several files.
+
+        Returns
+        -------
+        Report
+            Every problem found, in order; empty if the value is valid.
+
+        Raises
+        ------
+        Exception
+            Only what calling the validator would raise for a reason
+            other than an invalid value (e.g. an unsupported hint).
+        """
+        return _collect_report(self, value, location)
+
     def error(
         self, value: tx.Any, message: tx.Optional[str] = None, **kwargs
     ) -> ValidationError:
-        """Return a [`ValidationError`][] with the given value and message."""
+        """
+        Return a [`ValidationError`][] with the given value and message.
+
+        Pass `type="type"` or `type="value"` for a
+        [`TypeValidationError`][] or a [`ValueValidationError`][], and
+        `fix="..."` to say how to fix the failure (it shows in a
+        [`Report`][bagof.validators.reports.Report]).
+        """
         type = kwargs.pop("type", ValidationError)
         type = {
             "value": ValueValidationError,

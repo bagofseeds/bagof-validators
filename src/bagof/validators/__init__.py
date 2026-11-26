@@ -21,6 +21,8 @@ numbers
     Validators for numeric types (int, float, etc.).
 numpy
     Validators for numpy types (dtype, ndarray).
+reports
+    Reports that collect every validation failure.
 strings
     Validators for string types (regex patterns, etc.).
 """
@@ -36,6 +38,7 @@ __all__ = [
     "misc",
     "numbers",
     "numpy",
+    "reports",
     "strings",
 ]
 
@@ -54,6 +57,7 @@ from . import (
     misc,
     numbers,
     numpy,
+    reports,
     strings,
 )
 from .base import *  # noqa: F401, F403
@@ -74,6 +78,8 @@ from .numbers import *  # noqa: F401, F403
 from .numbers import __all__ as __all_numbers
 from .numpy import *  # noqa: F401, F403
 from .numpy import __all__ as __all_numpy
+from .reports import *  # noqa: F401, F403
+from .reports import __all__ as __all_reports
 from .strings import *  # noqa: F401, F403
 from .strings import __all__ as __all_strings
 
@@ -86,4 +92,5 @@ __all__ += __all_exceptions
 __all__ += __all_misc
 __all__ += __all_numbers
 __all__ += __all_numpy
+__all__ += __all_reports
 __all__ += __all_strings
