@@ -22,7 +22,7 @@ numbers
 numpy
     Validators for numpy types (dtype, ndarray).
 reports
-    Reports that collect every validation failure.
+    Collect every validation problem into a report.
 strings
     Validators for string types (regex patterns, etc.).
 """

@@ -41,6 +41,13 @@ class ValidationError(MagicError):
     fix: tx.Optional[str]
     """How to fix the failure, when the validator can say."""
 
+    problems: tx.Tuple[tx.Any, ...] = ()
+    """
+    Inside a [`collect`][bagof.validators.reports.collect] block, every
+    [`Problem`][bagof.validators.reports.Problem] that the failing
+    validator call found; empty otherwise.
+    """
+
     def __init__(self, *args, **kwargs) -> None:
         if "validator" in kwargs:
             kwargs["this"] = kwargs.pop("validator")

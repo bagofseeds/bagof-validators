@@ -19,13 +19,16 @@ ValueValidationError: IsSequence(collections.abc.Sequence[int]): Iterable's 0th 
 
 ## Every problem at once
 
-A validator stops at the first failure. Its `report` method keeps going,
-and returns every problem it found, with where it is:
+A validator stops at the first failure. Inside a `collect` block, a
+validator that checks several items checks all of them, and every problem
+it finds is recorded in a report, with its location:
 
 ```pycon
 >>> from typing import Dict, List
+>>> from bagof.validators import collect, get_validator
 >>> validate = get_validator(Dict[str, List[int]])
->>> report = validate.report({"a": [1, "x"], "b": 2})
+>>> with collect() as report:
+...     validate({"a": [1, "x"], "b": 2})
 >>> report.ok
 False
 >>> print(report)
@@ -38,5 +41,22 @@ False
 [(('a', 1), 'type'), (('b',), 'type')]
 ```
 
-`Severity` and `Fix` in `Annotated` metadata set how serious a failure is,
-and how to fix it. See the `reports` module for the details.
+By default, the block only records: nothing is raised and nothing is
+printed, so code that validates as it builds an object (such as a
+`bagof-magic` class with `validate=True`) still builds it. Each severity
+can instead be given the action `"warn"`, which emits a warning per
+problem, or `"raise"`, which raises once the validator has checked
+everything. The error then propagates out of the block, and the report can
+still be read:
+
+```python
+try:
+    with collect(error="raise", warning="warn") as report:
+        config = MySidecar(**data)
+except ValidationError:
+    print(report)
+```
+
+Outside a `collect` block, validators fail fast as before. `Severity` and
+`Fix` in `Annotated` metadata set how serious a failure is, and how to fix
+it. See the `reports` module for the details.

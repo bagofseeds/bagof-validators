@@ -1,21 +1,24 @@
 """
-Reports that collect every validation failure.
+Collect every validation problem into a report.
 
-A validator stops at the first failure and raises it. Its
-[`report`][bagof.validators.base.Validator.report] method keeps going
-instead, and returns a [`Report`][bagof.validators.reports.Report] of
-every [`Problem`][bagof.validators.reports.Problem] it found:
+A validator stops at the first failure and raises it. Inside a
+[`collect`][bagof.validators.reports.collect] block, a validator that
+checks several items (the entries of a container, the fields of a
+`TypedDict`, the constraints of an `Annotated` hint) checks all of
+them instead, and every [`Problem`][bagof.validators.reports.Problem]
+it finds is recorded, with its location, in a
+[`Report`][bagof.validators.reports.Report]:
 
 ```pycon
 >>> import typing_extensions as tx
->>> from bagof.validators import Validator
+>>> from bagof.validators import collect, get_validator
 >>> class Sidecar(tx.TypedDict):
 ...     RepetitionTime: float
 ...     EchoTime: tx.List[float]
 ...     TaskName: str
->>> report = Validator.get(Sidecar).report(
-...     {"RepetitionTime": "2s", "EchoTime": [0.01, "x", None]}
-... )
+>>> validate = get_validator(Sidecar)
+>>> with collect() as report:
+...     validate({"RepetitionTime": "2s", "EchoTime": [0.01, "x", None]})
 >>> report.ok
 False
 >>> print(report)
@@ -32,39 +35,93 @@ False
 [('RepetitionTime',), ('EchoTime', 1), ('EchoTime', 2), ('TaskName',)]
 ```
 
-The validator itself is unchanged: calling it still raises on the first
-failure.
+By default, nothing is raised inside the block: the call above returned
+normally, and its problems were recorded. Outside any `collect` block,
+validators fail fast exactly as before.
+
+## What happens to a problem
+
+Every problem is recorded in the report. What else happens is the
+problem's *action*, chosen per severity when the block is opened:
+
+* `"ignore"`, the default: nothing else. The validator call returns
+  normally, so an object being validated (for example a `bagof-magic`
+  class with `validate=True`) is still built.
+* `"warn"`: the call returns normally, and a
+  [`ValidationWarning`][bagof.validators.reports.ValidationWarning] is
+  emitted for the problem, naming its location.
+* `"raise"`: once the validator has checked everything it was given,
+  the call raises a
+  [`ValidationError`][bagof.validators.exceptions.ValidationError]. The
+  error propagates out of the `with` block as usual, and the report,
+  which was filled before the error left the block, can be read in an
+  `except` clause.
+
+Keyword arguments name severities, and a single positional action
+applies to every severity that is not named:
+
+```python
+with collect(error="raise", warning="warn") as report: ...
+with collect("warn", recommended="ignore") as report: ...
+```
+
+```pycon
+>>> import typing_extensions as tx
+>>> from bagof.validators import ValidationError, collect, get_validator
+>>> try:
+...     with collect(error="raise") as report:
+...         get_validator(tx.List[int])([1, "x", None])
+... except ValidationError:
+...     print(report)
+2 problems (error: 2)
+[1]: error: Not a valid instance.
+    expected int, found 'x'
+[2]: error: Not a valid instance.
+    expected int, found None
+```
+
+The action is applied by the outermost validator call, the one made by
+the code inside the block. A validator called by another validator
+behaves as it does when failing fast: it raises on a failure, so that
+a union, or a validator of your own that uses another one as a test,
+sees the same outcome in and out of a `collect` block.
+
+`collect` covers validation only. A conversion error (from
+`bagof-converters`) is not a validation problem: it is not recorded,
+and it propagates as usual. So does any other exception that is not a
+`ValidationError`.
 
 ## What a problem records
 
 * `location`: the path to the offending value, as a tuple of mapping
-  keys, `TypedDict` fields and sequence indices. `()` is the value
-  itself. Unions and `Annotated` add nothing to it.
+  keys, `TypedDict` fields and sequence indices. `()` is the value that
+  was given to the validator. Unions and `Annotated` add nothing to it.
 * `kind`: `"type"` (the value has the wrong type) or `"value"` (right
   type, wrong value), and a `message`.
 * `expected`: the type that was expected, or the constraint that failed
-  (e.g. `IsInRange(0, 1)`). `found`: a short, truncated repr of the
-  offending value; `None` when a required key is missing.
+  (for example `IsInRange(0, 1)`). `found`: a short, truncated repr of
+  the offending value, or `None` when a required key is missing.
 * `severity`: a [`Severity`][bagof.validators.reports.Severity],
-  [`Severity.ERROR`][bagof.validators.reports.Severity.ERROR] unless the
-  hint says otherwise.
-* `fix`: how to fix it, when known, else `None`.
+  which is [`Severity.ERROR`][bagof.validators.reports.Severity.ERROR]
+  unless the hint says otherwise.
+* `fix`: how to fix the problem, when known, else `None`.
 * `causes`: for a union, the problems that explain it (see below).
 
-A `Problem` is a named tuple: `problem._asdict()` gives a plain dict for
-JSON or a table.
+A `Problem` is a named tuple: `problem._asdict()` gives a plain dict
+for JSON or a table.
 
-## How the walk proceeds
+## How the checks proceed
 
 * **A wrong type stops descent into that value.** A list given where a
-  mapping is expected is one problem; its contents are not checked.
+  mapping is expected is one problem, and its contents are not checked.
   The same goes for a tuple of the wrong length. Every other failure
-  lets the walk carry on to the value's siblings.
+  lets the validator carry on to the value's siblings.
 * **`Annotated` constraints** are all checked, and each failing one is
-  its own problem -- unless the value has the wrong type, in which case
-  the constraints are skipped.
+  its own problem, unless the value has the wrong type, in which case
+  the constraints after the type check are skipped.
 * **A union** is satisfied by its first matching member, as when
-  failing fast. When every member fails:
+  failing fast. When every member fails, the union keeps the problems
+  of the member that matched best:
 
     * if exactly one member had the right shape (it failed on its
       contents or on a constraint, not on the value's own type), the
@@ -75,9 +132,26 @@ JSON or a table.
       problems of every member that had the right shape (none, when no
       member did: `expected` then names them all).
 
-* **A validator you wrote yourself** is checked as one unit: its first
-  failure is one problem at its location. Give it a fix hint with
-  `raise self.error(value, "...", type="value", fix="...")`.
+* **A validator you wrote yourself** takes part without any change.
+  Each validator that it calls checks every item it is given, and the
+  problems found below it keep their locations, also when it re-raises
+  their error with `raise ... from error`. A failure of its own is one
+  problem at its location; give it a fix hint with
+  `raise self.error(value, "...", type="value", fix="...")`. An error
+  that it catches and does not re-raise is not recorded.
+
+## Nested blocks
+
+A `collect` block opened inside another one has its own report and its
+own actions; it does not inherit those of the outer block. A problem
+reaches the outer report only when its error propagates out of the
+inner block, which happens when its action in the inner block is
+`"raise"`. In that respect an inner block behaves like an `except`
+clause: what it handles stays in it.
+
+The state of a block is held in a [`ContextVar`][contextvars.ContextVar],
+so each thread and each `asyncio` task sees only the blocks it opened
+itself (and those of the context it was started from).
 
 ## Severity and fix hints
 
@@ -91,53 +165,81 @@ class Sidecar(tx.TypedDict, total=False):
     SliceTiming: tx.Annotated[tx.List[float], Severity.WARNING]
 ```
 
-A severity says how serious a failure of that hint is. Only a severity
-that `fails` (such as `Severity.ERROR`) makes the value invalid, and the
-validator agrees with its report: it raises exactly when
-`report.ok` is false. So a failure under `Severity.WARNING` is reported
-as a warning and no longer raises. On a required `TypedDict` field, the
-severity also covers the key being missing. An annotation relabels only
-the failing problems under it: an error inside
-`Annotated[..., Severity.WARNING]` becomes a warning, while a warning
-inside `Annotated[..., Severity("proscribed", fails=True)]` stays a
-warning.
+```python
+with collect(recommended="warn") as report:
+    get_validator(Sidecar)(data)
+```
+
+A severity says how serious a failure of that hint is, independently of
+what a `collect` block does with it. A severity that `fails` (such as
+`Severity.ERROR`) makes the value invalid, and only such a problem
+makes [`Report.ok`][bagof.validators.reports.Report.ok] false. Outside
+a `collect` block, a validator raises exactly for those problems, so a
+failure under `Severity.WARNING`, or under a custom severity that does
+not fail, does not raise. On a required `TypedDict` field, the severity
+also covers the key being missing. The nearest annotation decides: an
+error inside `Annotated[..., Severity.WARNING]` becomes a warning,
+while a problem that already has a severity keeps it.
 
 A [`Fix`][bagof.validators.reports.Fix] is attached to every problem
 found under it that has no fix of its own.
 """
 
-__all__ = ["Report", "Problem", "Severity", "Fix"]
+__all__ = [
+    "collect",
+    "Report",
+    "Problem",
+    "Severity",
+    "Fix",
+    "ValidationWarning",
+]
 
 # Design notes (issue #50) -- the mechanics behind the rules above.
 #
-# * Entry point. `Validator.report(value, location=())`: one method on
-#   every validator, nothing to configure on `get_validator`. Prior art:
-#   jsonschema's `iter_errors` (a second entry point beside `validate`)
-#   and pydantic's `ValidationError.errors()` (a flat list of dicts with
-#   `loc`/`type`/`msg`/`input`). The report is flat for the same reason:
-#   tools sort, filter and count it. It is a plain `Sequence`, not an
-#   exception: there is no `ExceptionGroup` before 3.11, and a report of
-#   warnings only is not a failure. cattrs' `ClassValidationError` (an
-#   exception tree with notes) is closer to the fail-fast
-#   `MultipleCauses` chain, which is left as it is.
+# * One entry point: `collect()`, a context manager, so that code which
+#   calls validators indirectly (a `bagof-magic` class, a user's own
+#   validator) is covered without passing anything through it. Prior
+#   art: pydantic's `ValidationError.errors()` (a flat list of dicts
+#   with `loc`/`type`/`msg`/`input`) -- the report is flat for the same
+#   reason, tools sort, filter and count it -- and the `warnings`
+#   module's `catch_warnings`, for the shape of the API.
 #
-# * No context through `__call__`. A collect-aware validator defines a
-#   private `_collect(value, report)`; `_Collector.check` calls it in
-#   place of `__call__`, and every other validator is called exactly as
-#   when failing fast, as one unit. So the fail-fast path is not
-#   rewritten, and a validator that calls another one as a predicate
-#   (`try: v(x) except ValidationError: ...`) still gets a raise.
-#   `_collect` is used only when the class that defines the nearest
-#   `__call__` also defines `_collect` (`_collector_for`): a subclass
-#   that overrides `__call__` (`IsIterator`, or a user's) silently
-#   falls back to the one-unit check rather than skipping its own code.
+# * The state lives in a `ContextVar` (`_STATE`): stdlib since 3.7,
+#   per thread and per asyncio task. Nothing changes when it is unset,
+#   so outside `collect()` every validator runs its fail-fast code.
+#
+# * The outermost validator call applies the actions. Every `__call__`
+#   defined on a `Validator` subclass is wrapped once, by the metaclass
+#   (`_entry`). Outside `collect()`, or below the outermost call, the
+#   wrapper only reads the ContextVar and calls through. The outermost
+#   call settles the problems found below it: it raises if any action
+#   is "raise", else warns as asked, records, and returns normally.
+#   Below it, validators raise as when failing fast -- except that the
+#   multi-item ones check every item first -- so a union, or a
+#   validator used as a predicate (`try: v(x) except ...`), sees the
+#   same outcome as when failing fast. Were the actions applied at every
+#   level, `error="ignore"` would make a failing union member "match".
+#
+# * Problems travel with the errors. A multi-item validator checks its
+#   items in a `_Frame`, which records each item's problems in
+#   `_State.pending`, at the location the frames have built. If any of
+#   them fails, the frame moves them onto the error it raises (its
+#   `problems` attribute), so an error that is caught and handled takes
+#   its problems with it, and nothing stale is left behind. The parent
+#   frame adopts them; a plain error becomes one problem. An error that
+#   wraps another one `from` it keeps the problems of its cause.
 #
 # * Severity is resolved bottom-up. A problem is recorded with
 #   `severity=None` ("not said"); the nearest `Annotated` with a
-#   `Severity` relabels the failing problems under it; `_finish` turns
-#   what is left into `Severity.ERROR`. A union member "matched" when it
-#   added no failing problem, so a member with warnings only wins, as it
-#   would when failing fast.
+#   `Severity` labels the unlabelled problems under it; `_settle` turns
+#   what is left into `Severity.ERROR`. A frame fails when a problem
+#   under it fails, `None` counting as an error.
+#
+# * `Severity.fails` is kept beside the actions rather than replaced by
+#   them: the actions are the caller's policy for one block (and default
+#   to "ignore"), while `fails` is what the hint's author says about
+#   validity. `Report.ok`, the fail-fast mode and the union's notion of
+#   a match need an answer that does not depend on the block.
 #
 # * Union relevance follows pydantic's "smart" mode and jsonschema's
 #   `best_match` in spirit, with one deterministic rule: a member that
@@ -145,9 +247,12 @@ __all__ = ["Report", "Problem", "Severity", "Fix"]
 #   uninformative (`expected` already names it).
 
 # stdlib
+import contextlib
+import contextvars
 import functools
 import re
 import reprlib
+import warnings
 
 # dependencies
 import typing_extensions as tx
@@ -167,6 +272,12 @@ from .exceptions import ValidationError
 
 Location: tx.TypeAlias = tx.Tuple[tx.Hashable, ...]
 """The path to a value: mapping keys, field names and indices."""
+
+Action: tx.TypeAlias = tx.Literal["raise", "warn", "ignore"]
+"""What a [`collect`][bagof.validators.reports.collect] block does with
+a problem, besides recording it."""
+
+_ACTIONS = ("raise", "warn", "ignore")
 
 
 class Severity(str):
@@ -188,14 +299,18 @@ class Severity(str):
     ```
 
     Put one in [`Annotated`][typing.Annotated] metadata to set how
-    serious a failure of that hint is:
+    serious a failure of that hint is. The label is also the keyword
+    that chooses, in a [`collect`][bagof.validators.reports.collect]
+    block, what is done with such a problem:
 
     ```pycon
     >>> import typing_extensions as tx
-    >>> from bagof.validators import Severity, Validator
-    >>> validate = Validator.get(tx.Annotated[int, Severity.WARNING])
+    >>> from bagof.validators import Severity, collect, get_validator
+    >>> validate = get_validator(tx.Annotated[int, Severity.WARNING])
     >>> validate("x")          # a warning does not fail validation
-    >>> print(validate.report("x"))
+    >>> with collect(warning="ignore") as report:
+    ...     validate("x")
+    >>> print(report)
     1 problem (warning: 1)
     <root>: warning: Not a valid instance.
         expected int, found 'x'
@@ -239,18 +354,31 @@ class Fix(str):
 
     ```pycon
     >>> import typing_extensions as tx
-    >>> from bagof.validators import Fix, Validator
+    >>> from bagof.validators import Fix, collect, get_validator
     >>> hint = tx.Annotated[float, Fix("Give it in seconds.")]
-    >>> Validator.get(hint).report("2s")[0].fix
+    >>> with collect() as report:
+    ...     get_validator(hint)("2s")
+    >>> report[0].fix
     'Give it in seconds.'
     ```
     """
 
 
+class ValidationWarning(UserWarning):
+    """
+    The warning emitted for a problem whose action is `"warn"` in a
+    [`collect`][bagof.validators.reports.collect] block.
+
+    Its message names the problem's location, severity and message, as
+    a line of the printed report does. Filter it like any warning, for
+    example `warnings.simplefilter("error", ValidationWarning)`.
+    """
+
+
 class Problem(tx.NamedTuple):
     """
-    One failure, as found by
-    [`Validator.report`][bagof.validators.base.Validator.report].
+    One problem found by a validator inside a
+    [`collect`][bagof.validators.reports.collect] block.
     """
 
     location: Location
@@ -288,25 +416,22 @@ class Problem(tx.NamedTuple):
 
 class Report(tx.Sequence[Problem]):
     """
-    Every [`Problem`][bagof.validators.reports.Problem] found in a value,
-    in the order they were met.
+    Every [`Problem`][bagof.validators.reports.Problem] recorded in a
+    [`collect`][bagof.validators.reports.collect] block, in the order
+    they were found.
 
     A report is a sequence of problems for tools, and prints for people.
-    Build one with
-    [`Validator.report`][bagof.validators.base.Validator.report]; build
-    one yourself to merge several, e.g. one per file:
+    The report that a block yields is filled while the block runs, and
+    stays readable once it has been left, including when the block was
+    left by an error. A report can also be built from problems, for
+    example to merge several:
 
     ```python
-    validate = Validator.get(Sidecar)
-    report = Report(
-        problem
-        for name, data in sidecars.items()
-        for problem in validate.report(data, location=(name,))
-    )
+    merged = Report([*first_report, *second_report])
     ```
 
     !!! note
-        Like any sequence, an empty report is falsy -- but a report of
+        Like any sequence, an empty report is falsy, but a report of
         warnings only is not, and still describes a valid value. Test
         [`ok`][bagof.validators.reports.Report.ok] for validity.
     """
@@ -318,46 +443,134 @@ class Report(tx.Sequence[Problem]):
         problems : Iterable[Problem]
             The problems, in order.
         """
-        self.problems: tx.Tuple[Problem, ...] = tuple(problems)
+        self._problems: tx.List[Problem] = list(problems)
+
+    @property
+    def problems(self) -> tx.Tuple[Problem, ...]:
+        """The problems, in order."""
+        return tuple(self._problems)
 
     @property
     def ok(self) -> bool:
-        """Whether no problem makes the value invalid."""
-        return not any(problem.fails for problem in self.problems)
+        """
+        Whether no problem makes the value invalid.
+
+        This depends on the problems' severities only, not on what the
+        block did with them: a report of errors that were ignored is not
+        ok.
+        """
+        return not any(problem.fails for problem in self._problems)
 
     def __getitem__(self, index: tx.Any) -> tx.Any:
-        return self.problems[index]
+        return self._problems[index]
 
     def __len__(self) -> int:
-        return len(self.problems)
+        return len(self._problems)
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Report):
             return NotImplemented
-        return self.problems == other.problems
+        return self._problems == other._problems
 
     __hash__ = None  # type: ignore[assignment]
 
     def summary(self) -> str:
         """One line: how many problems, by severity."""
-        if not self.problems:
+        if not self._problems:
             return "No problems."
         counts: tx.Dict[str, int] = {}
-        for problem in self.problems:
-            label = str(problem.severity)
+        for problem in self._problems:
+            label = _label(problem.severity)
             counts[label] = counts.get(label, 0) + 1
-        n = len(self.problems)
+        n = len(self._problems)
         detail = ", ".join(f"{k}: {v}" for k, v in counts.items())
         return f"{n} problem{'s' if n != 1 else ''} ({detail})"
 
     def __str__(self) -> str:
         lines = [self.summary()]
-        for problem in self.problems:
+        for problem in self._problems:
             lines.extend(_render(problem, ""))
         return "\n".join(lines)
 
     def __repr__(self) -> str:
         return f"<Report: {self.summary()}>"
+
+
+@contextlib.contextmanager
+def collect(
+    default: tx.Optional[Action] = None, /, **actions: Action
+) -> tx.Iterator[Report]:
+    """
+    Record every validation problem found inside the block.
+
+    Inside the block, a validator that checks several items checks all
+    of them rather than stopping at the first failure, and every problem
+    found is recorded in the report that the block yields. See
+    [`reports`][bagof.validators.reports] for how the checks proceed.
+
+    !!! example
+        ```pycon
+        >>> import typing_extensions as tx
+        >>> from bagof.validators import collect, get_validator
+        >>> validate = get_validator(tx.Dict[str, tx.List[int]])
+        >>> with collect() as report:
+        ...     validate({"a": [1, "x"], "b": 2})
+        >>> report.ok
+        False
+        >>> print(report)
+        2 problems (error: 2)
+        ['a'][1]: error: Not a valid instance.
+            expected int, found 'x'
+        ['b']: error: Not a valid instance.
+            expected list[int], found 2
+        ```
+
+    Parameters
+    ----------
+    default : {"ignore", "warn", "raise"}, optional
+        The action for every severity that is not named by a keyword.
+        `"ignore"` when not given.
+    **actions : {"ignore", "warn", "raise"}
+        The action for the severity of that name, for example
+        `error="raise"`, `warning="warn"` or `recommended="warn"`.
+        Every problem is recorded, whatever its action. With
+        `"ignore"`, nothing else is done. With `"warn"`, a
+        [`ValidationWarning`][bagof.validators.reports.ValidationWarning]
+        is emitted. With `"raise"`, the validator call raises once it
+        has checked everything it was given, and the error propagates
+        out of the block.
+
+    Yields
+    ------
+    Report
+        The problems found in the block, filled as it runs. It can
+        still be read once the block has been left, also from an
+        `except` clause.
+
+    Raises
+    ------
+    ValueError
+        If an action is not one of `"ignore"`, `"warn"` and `"raise"`.
+    """
+    for action in (default, *actions.values()):
+        if action is not None and action not in _ACTIONS:
+            raise ValueError(
+                f"Unknown action {action!r}: expected one of "
+                f"{', '.join(map(repr, _ACTIONS))}."
+            )
+    state = _State(default or "ignore", actions)
+    token = _STATE.set(state)
+    try:
+        yield state.report
+    except ValidationError as error:
+        # Raised by the outermost validator call (its problems are on
+        # it), or by the block's own code. Recorded, never swallowed.
+        state.report._problems.extend(
+            _settle(_problems_of(error, UNSET, ()))
+        )
+        raise
+    finally:
+        _STATE.reset(token)
 
 
 # ----------------------------------------------------------------------
@@ -434,7 +647,7 @@ def _location_str(location: Location) -> str:
 def _render(problem: Problem, indent: str) -> tx.List[str]:
     lines = [
         f"{indent}{_location_str(problem.location)}: "
-        f"{problem.severity}: {problem.message}"
+        f"{_label(problem.severity)}: {problem.message}"
     ]
     detail = []
     if problem.expected is not None:
@@ -451,8 +664,13 @@ def _render(problem: Problem, indent: str) -> tx.List[str]:
 
 
 # ----------------------------------------------------------------------
-# Collection (private: used by the collect-aware validators)
+# Collection (private: used by the validators)
 # ----------------------------------------------------------------------
+
+
+def _label(severity: tx.Any) -> str:
+    """A severity's label; `None` (not said yet) is an error."""
+    return "error" if severity is None else str(severity)
 
 
 def _fails(severity: tx.Any) -> bool:
@@ -475,111 +693,305 @@ def _annotation_meta(
     return severity, fix
 
 
-@functools.lru_cache(maxsize=1024)
-def _collector_for(cls: type) -> tx.Optional[tx.Callable]:
+class _State:
+    """What a `collect()` block holds while it runs."""
+
+    __slots__ = ("report", "default", "actions", "busy", "pending",
+                 "location")
+
+    def __init__(self, default: str, actions: tx.Dict[str, str]) -> None:
+        self.report = Report()
+        self.default = default
+        self.actions = actions
+        # Whether a validator call is running (only the outermost one
+        # settles), the problems found below it so far, and where the
+        # value being checked is.
+        self.busy = False
+        self.pending: tx.List[Problem] = []
+        self.location: Location = ()
+
+    def action(self, severity: tx.Any) -> str:
+        return self.actions.get(_label(severity), self.default)
+
+    def run(self, call: tx.Callable, this: tx.Any, value: tx.Any) -> tx.Any:
+        """Make the outermost validator call, and settle its problems."""
+        self.busy = True
+        try:
+            try:
+                result = call(this, value)
+            except ValidationError as error:
+                problems = _settle(
+                    self.pending + _problems_of(error, value, ())
+                )
+                if self._raises(problems):
+                    _attach(error, problems)
+                    raise
+                self._keep(problems)
+                return None
+            problems = _settle(self.pending)
+            if self._raises(problems):
+                # Only a problem that does not fail (e.g. a warning) can
+                # get here: the validator itself did not raise.
+                raise _attach(this.value_error(
+                    value, _summarize(problems)
+                ), problems)
+            self._keep(problems)
+            return result
+        finally:
+            self.busy = False
+            self.pending = []
+            self.location = ()
+
+    def _raises(self, problems: tx.List[Problem]) -> bool:
+        actions = [self.action(problem.severity) for problem in problems]
+        # Warn now: the problems with "warn" travel on the error, and
+        # the block records them, but it does not warn again.
+        for problem, action in zip(problems, actions):
+            if action == "warn":
+                warnings.warn(
+                    ValidationWarning(_one_line(problem)), stacklevel=4
+                )
+        return "raise" in actions
+
+    def _keep(self, problems: tx.List[Problem]) -> None:
+        self.report._problems.extend(problems)
+
+
+_STATE: "contextvars.ContextVar[tx.Optional[_State]]" = (
+    contextvars.ContextVar("bagof.validators.collect", default=None)
+)
+
+
+def _collecting() -> tx.Optional[_State]:
+    """The running `collect()` block, while a validator call runs in it."""
+    state = _STATE.get()
+    if state is None or not state.busy:
+        return None
+    return state
+
+
+def _entry(call: tx.Callable) -> tx.Callable:
+    """Wrap a validator's `__call__` so that, inside `collect()`, the
+    outermost call settles the problems found below it."""
+
+    @functools.wraps(call)
+    def __call__(self: tx.Any, value: tx.Any) -> tx.Any:
+        state = _STATE.get()
+        if state is None or state.busy:
+            return call(self, value)
+        return state.run(call, self, value)
+
+    return __call__
+
+
+def _attach(
+    error: ValidationError, problems: tx.Iterable[Problem]
+) -> ValidationError:
+    error.problems = tuple(problems)
+    return error
+
+
+def _problems_of(
+    error: BaseException, value: tx.Any, location: Location
+) -> tx.List[Problem]:
+    """The problems an error carries, from itself or from its cause; or
+    one problem made from the error."""
+    seen = set()
+    cause: tx.Optional[BaseException] = error
+    while cause is not None and id(cause) not in seen:
+        problems = getattr(cause, "problems", None)
+        if problems:
+            return list(problems)
+        seen.add(id(cause))
+        cause = cause.__cause__
+    return [_problem(error, value, location)]
+
+
+def _problem(
+    error: BaseException,
+    value: tx.Any,
+    location: Location,
+    message: tx.Optional[str] = None,
+) -> Problem:
+    """One problem, made from a plain validation error."""
+    kind = "type" if isinstance(error, TypeError) else "value"
+    found = getattr(error, "value", UNSET)
+    if found is UNSET:
+        found = value
+    return Problem(
+        location,
+        kind,
+        message or getattr(error, "message", "") or "Invalid value.",
+        _expected(getattr(error, "this", None), kind),
+        None if found is UNSET else _short_repr(found),
+        None,  # type: ignore[arg-type]  # resolved by `_settle`
+        getattr(error, "fix", None),
+    )
+
+
+def _wrong_type(problems: tx.Iterable[Problem], location: Location) -> bool:
+    """Whether a failing type problem was recorded at `location`."""
+    return any(
+        p.kind == "type" and p.location == location and p.fails
+        for p in problems
+    )
+
+
+def _summarize(problems: tx.Sequence[Problem]) -> str:
+    return str(Report(problems))
+
+
+def _one_line(problem: Problem) -> str:
+    first, *rest = _render(problem, "")
+    detail = "; ".join(line.strip() for line in rest)
+    return f"{first} ({detail})" if detail else first
+
+
+class _Frame:
     """
-    The `_collect` method that stands for `cls.__call__`, if any.
+    Where a validator checks several items.
 
-    Only when the class that defines the nearest `__call__` also
-    defines `_collect`: a subclass that overrides `__call__` alone is
-    checked as one unit, so its own checks are never skipped.
+    Outside `collect()`, `check` and `fail` raise as a fail-fast
+    validator does. Inside it, they record problems at the item's
+    location and carry on; when the frame closes, it raises one error
+    carrying all of its problems if any of them fails.
     """
-    for klass in cls.__mro__:
-        if "__call__" in vars(klass):
-            return vars(klass).get("_collect")
-    return None
 
+    __slots__ = ("this", "value", "state", "start", "location", "last",
+                 "caught")
 
-class _Collector:
-    """Where a report is gathered: the current location and problems."""
+    def __init__(self, this: tx.Any, value: tx.Any) -> None:
+        self.this = this
+        self.value = value
+        self.state = _collecting()
 
-    __slots__ = ("location", "problems")
-
-    def __init__(self, location: Location = ()) -> None:
-        self.location: Location = location
-        self.problems: tx.List[Problem] = []
-
-    def branch(self) -> "_Collector":
-        """An empty collector at the same location (to try a union)."""
-        return _Collector(self.location)
+    def __enter__(self) -> "_Frame":
+        state = self.state
+        if state is not None:
+            self.start = self.last = len(state.pending)
+            self.location = state.location
+            self.caught: tx.List[ValidationError] = []
+        return self
 
     def check(
         self,
-        validator: tx.Callable,
-        value: tx.Any,
+        validator: tx.Callable[[tx.Any], tx.Any],
+        item: tx.Any,
         key: tx.Any = UNSET,
-        catch_plain: bool = False,
+        message: tx.Optional[tx.Callable[[tx.Any, tx.Any], str]] = None,
+        whole: bool = False,
     ) -> bool:
         """
-        Validate `value` (at `key` below the current location) and record
-        what fails. Returns whether nothing failing was recorded.
+        Validate `item`, found at `key` (or at the frame's own location).
+        Returns whether nothing failed.
 
-        With `catch_plain`, a plain `TypeError`/`ValueError` is recorded
-        as a problem, as a union does when failing fast.
+        Failing fast, a failure is raised again as the frame's own error
+        with `message(key, item)`, or as it is without a `message`.
+        Collecting, it is recorded; with `whole`, as one problem with
+        that message, whatever was found below it.
         """
-        outer = self.location
-        if key is not UNSET:
-            self.location = outer + (key,)
-        start = len(self.problems)
-        try:
-            collect = _collector_for(type(validator))
-            if collect is None:
-                validator(value)
-            else:
-                collect(validator, value, self)
-        except ValidationError as e:
-            self.record_error(e, value)
-        except (TypeError, ValueError) as e:
-            if not catch_plain:
-                raise
-            self.record(
-                "value", f"{type(e).__name__}: {e}",
-                expected=_expected(validator, "value"),
-                found=_short_repr(value),
-            )
-        finally:
-            self.location = outer
-        return not any(p.fails for p in self.problems[start:])
-
-    def wrong_type(self, start: int = 0) -> bool:
-        """Whether a failing type problem was recorded right here."""
-        return any(
-            p.kind == "type" and p.location == self.location and p.fails
-            for p in self.problems[start:]
-        )
-
-    def record(
-        self,
-        kind: str,
-        message: str,
-        key: tx.Any = UNSET,
-        expected: tx.Optional[str] = None,
-        found: tx.Optional[str] = None,
-        severity: tx.Optional[Severity] = None,
-        fix: tx.Optional[str] = None,
-        causes: tx.Tuple[Problem, ...] = (),
-    ) -> None:
+        state = self.state
+        if state is None:
+            if message is None:
+                validator(item)
+                return True
+            try:
+                validator(item)
+            except ValidationError as e:
+                raise self.this.value_error(
+                    self.value, message(key, item)
+                ) from e
+            return True
         location = self.location
         if key is not UNSET:
             location = location + (key,)
-        self.problems.append(Problem(
-            location, kind, message, expected, found,
-            severity,  # type: ignore[arg-type]  # resolved by `_finish`
-            fix, causes,
+        state.location = location
+        self.last = len(state.pending)
+        try:
+            validator(item)
+        except ValidationError as e:
+            self.caught.append(e)
+            if whole and message is not None:
+                state.pending.append(
+                    _problem(e, item, location, message(key, item))
+                )
+            else:
+                state.pending.extend(_problems_of(e, item, location))
+        finally:
+            state.location = self.location
+        return not any(p.fails for p in state.pending[self.last:])
+
+    def wrong_type(self) -> bool:
+        """Whether the last check failed on the value's own type."""
+        return _wrong_type(self.state.pending[self.last:], self.location)
+
+    def fail(
+        self,
+        message: str,
+        key: tx.Any = UNSET,
+        expected: tx.Optional[str] = None,
+        found: tx.Any = UNSET,
+        severity: tx.Optional[Severity] = None,
+        fix: tx.Optional[str] = None,
+    ) -> None:
+        """A failure of the frame's own (a missing or unexpected key)."""
+        state = self.state
+        if state is None:
+            if _fails(severity):
+                raise self.this.value_error(self.value, message)
+            return
+        location = self.location
+        if key is not UNSET:
+            location = location + (key,)
+        state.pending.append(Problem(
+            location, "value", message, expected,
+            None if found is UNSET else _short_repr(found),
+            severity,  # type: ignore[arg-type]  # resolved by `_settle`
+            fix,
         ))
 
-    def record_error(self, error: ValidationError, value: tx.Any) -> None:
-        kind = "type" if isinstance(error, TypeError) else "value"
-        found = getattr(error, "value", UNSET)
-        if found is UNSET:
-            found = value
-        self.record(
-            kind,
-            getattr(error, "message", "") or "Invalid value.",
-            expected=_expected(getattr(error, "this", None), kind),
-            found=_short_repr(found),
-            fix=getattr(error, "fix", None),
-        )
+    def relabel(
+        self, severity: tx.Optional[Severity], fix: tx.Optional[str]
+    ) -> None:
+        """Give the frame's unlabelled problems a severity and a fix."""
+        if self.state is None or (severity is None and fix is None):
+            return
+        pending = self.state.pending
+        for i in range(self.start, len(pending)):
+            problem = pending[i]
+            if severity is not None and problem.severity is None:
+                problem = problem._replace(severity=severity)
+            if fix is not None and problem.fix is None:
+                problem = problem._replace(fix=fix)
+            pending[i] = problem
+
+    def __exit__(
+        self, etype: tx.Any, error: tx.Any, traceback: tx.Any
+    ) -> bool:
+        state = self.state
+        if state is None:
+            return False
+        if error is not None:
+            if not isinstance(error, ValidationError):
+                return False
+            # A failure in the frame's own code, after some items.
+            self.caught.append(error)
+            state.pending.extend(
+                _problems_of(error, self.value, self.location)
+            )
+        problems = state.pending[self.start:]
+        if not any(p.fails for p in problems):
+            return True
+        del state.pending[self.start:]
+        if len(self.caught) == 1 and all(
+            p.location == self.location for p in problems
+        ):
+            # One failure of the value itself (e.g. its type, under
+            # `Annotated`): the same error as when failing fast.
+            raise _attach(self.caught[0], problems)
+        raise _attach(self.this.value_error(
+            self.value, _summarize(problems)
+        ), problems)
 
 
 def _resolve(problem: Problem) -> Problem:
@@ -591,7 +1003,7 @@ def _resolve(problem: Problem) -> Problem:
     )
 
 
-def _finish(problems: tx.Iterable[Problem]) -> tx.List[Problem]:
+def _settle(problems: tx.Iterable[Problem]) -> tx.List[Problem]:
     """Settle severities, and drop repeats (a check run twice)."""
     seen: tx.Set[Problem] = set()
     out = []
@@ -604,11 +1016,3 @@ def _finish(problems: tx.Iterable[Problem]) -> tx.List[Problem]:
             pass
         out.append(problem)
     return out
-
-
-def _collect_report(
-    validator: tx.Callable, value: tx.Any, location: tx.Iterable[tx.Any]
-) -> Report:
-    collector = _Collector(tuple(location))
-    collector.check(validator, value)
-    return Report(_finish(collector.problems))

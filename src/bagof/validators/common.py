@@ -29,11 +29,17 @@ from .base import ClassDecorator, Validator, ValidatorRegistry
 from .exceptions import ValidationError
 from .reports import (
     Fix,
+    Problem,
     Severity,
     _annotation_meta,
-    _Collector,
+    _attach,
+    _collecting,
+    _expected,
+    _Frame,
     _hint_name,
+    _problems_of,
     _short_repr,
+    _wrong_type,
 )
 
 
@@ -69,6 +75,9 @@ class IsUnion(Validator[T], register=(tx.Union, UnionType)):
             raise TypeError(f"{self!r}: No arguments provided")
 
     def __call__(self, value: T) -> None:
+        state = _collecting()
+        if state is not None:
+            return self._call_collecting(value, state)
         errors = []
         for arg in self.args:
             # Wrap each member so that a plain `TypeError`/`ValueError`
@@ -88,28 +97,49 @@ class IsUnion(Validator[T], register=(tx.Union, UnionType)):
             value, "Not compatible with any of the union types.",
         ) from MultipleCauses(errors)
 
-    def _collect(self, value: T, report: _Collector) -> None:
-        # The first member that adds no failing problem wins, as above;
-        # its warnings, if any, are kept.
-        tried = []
+    def _call_collecting(self, value: T, state: tx.Any) -> None:
+        # As above, inside `collect()`: the first member that does not
+        # raise wins, with its warnings, if any. When none matches, the
+        # problems of the member that matched best are kept.
+        location, start = state.location, len(state.pending)
+        errors, tried = [], []
         for arg in self.args:
-            member = report.branch()
-            if member.check(Validator.get(arg), value, catch_plain=True):
-                report.problems.extend(member.problems)
+            validator = Validator.get(arg)
+            try:
+                validator(value)
                 return
-            tried.append(member)
+            except ValidationError as e:
+                error = e
+                problems = _problems_of(e, value, location)
+            except (TypeError, ValueError) as e:
+                # A member that cannot answer did not match, as above.
+                error = self.value_error(value)
+                error.__cause__ = e
+                problems = [Problem(
+                    location, "value", f"{type(e).__name__}: {e}",
+                    _expected(validator, "value"), _short_repr(value),
+                    None,  # type: ignore[arg-type]  # resolved by `_settle`
+                )]
+            errors.append(error)
+            tried.append(state.pending[start:] + problems)
+            del state.pending[start:]
         # A member that failed on the value's own type says nothing that
         # `expected` does not. If one member got past that, the value
         # was most likely meant as that member: report it as if alone.
-        shaped = [member for member in tried if not member.wrong_type()]
+        shaped = [p for p in tried if not _wrong_type(p, location)]
         if len(shaped) == 1:
-            report.problems.extend(shaped[0].problems)
-            return
-        report.record(
-            "type", "Not compatible with any of the union types.",
-            expected=_hint_name(self.hint), found=_short_repr(value),
-            causes=tuple(p for member in shaped for p in member.problems),
-        )
+            problems = shaped[0]
+        else:
+            problems = [Problem(
+                location, "type",
+                "Not compatible with any of the union types.",
+                _hint_name(self.hint), _short_repr(value),
+                None,  # type: ignore[arg-type]  # resolved by `_settle`
+                None, tuple(p for member in shaped for p in member),
+            )]
+        raise _attach(self.type_error(
+            value, "Not compatible with any of the union types.",
+        ), problems) from MultipleCauses(errors)
 
 
 class IsLiteral(Validator[T], register=tx.Literal):
@@ -144,9 +174,6 @@ class IsTypeVar(Validator[T], register=tx.TypeVar):
         # `unwrapped` resolves the typevar (see `Validator.UNWRAP`), so this
         # re-dispatches to the validator registered for the bound itself.
         return Validator.get(self.unwrapped)(value)
-
-    def _collect(self, value: T, report: _Collector) -> None:
-        report.check(Validator.get(self.unwrapped), value)
 
 
 class IsAnnotated(Validator[T], register=tx.Annotated):
@@ -272,10 +299,20 @@ class IsAnnotated(Validator[T], register=tx.Annotated):
         return self._report_meta
 
     def __call__(self, value: T) -> None:
-        severity, _ = self._severity_and_fix
+        severity, fix = self._severity_and_fix
+        if _collecting() is not None:
+            # Every validator in turn -- but a wrong type skips the
+            # constraints after it, which would only repeat it, or worse.
+            with _Frame(self, value) as frame:
+                for validator in self.validators:
+                    if not frame.check(validator, value) \
+                            and frame.wrong_type():
+                        break
+                frame.relabel(severity, fix)
+            return
         if severity is not None and not severity.fails:
             # A failure under a non-failing severity (e.g. a warning)
-            # does not make the value invalid -- as in its report.
+            # does not make the value invalid.
             try:
                 for validator in self.validators:
                     validator(value)
@@ -284,19 +321,3 @@ class IsAnnotated(Validator[T], register=tx.Annotated):
             return
         for validator in self.validators:
             validator(value)
-
-    def _collect(self, value: T, report: _Collector) -> None:
-        # Every validator in turn, as above -- but a wrong type skips the
-        # constraints after it, which would only repeat it, or worse.
-        severity, fix = self._severity_and_fix
-        local = report.branch()
-        for validator in self.validators:
-            start = len(local.problems)
-            if not local.check(validator, value) and local.wrong_type(start):
-                break
-        for problem in local.problems:
-            if severity is not None and problem.fails:
-                problem = problem._replace(severity=severity)
-            if fix is not None and problem.fix is None:
-                problem = problem._replace(fix=fix)
-            report.problems.append(problem)
