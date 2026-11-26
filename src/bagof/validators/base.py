@@ -30,6 +30,7 @@ from .exceptions import (
     ValidationError,
     ValueValidationError,
 )
+from .reports import _entry
 
 # typing
 
@@ -55,6 +56,12 @@ class ValidatorMetaclass(type(MagicHint)):
         **kwargs
     ) -> tx.Self:
         register = kwargs.pop("register", UNSET)
+        if "__call__" in namespace:
+            # Inside `collect()`, the outermost validator call settles
+            # what was found below it (see `reports`). Outside, the
+            # wrapper only calls through.
+            namespace = dict(namespace)
+            namespace["__call__"] = _entry(namespace["__call__"])
         cls = super().__new__(metacls, name, bases, namespace, **kwargs)
         if register is not UNSET:
             if register is True:
@@ -114,7 +121,15 @@ class Validator(MagicHint[T], metaclass=ValidatorMetaclass):
     def error(
         self, value: tx.Any, message: tx.Optional[str] = None, **kwargs
     ) -> ValidationError:
-        """Return a [`ValidationError`][] with the given value and message."""
+        """
+        Return a [`ValidationError`][] with the given value and message.
+
+        Pass `type="type"` or `type="value"` for a
+        [`TypeValidationError`][] or a [`ValueValidationError`][], and
+        `fix="..."` to say how to fix the failure (it shows in the
+        [`Report`][bagof.validators.reports.Report] of a
+        [`collect`][bagof.validators.reports.collect] block).
+        """
         type = kwargs.pop("type", ValidationError)
         type = {
             "value": ValueValidationError,

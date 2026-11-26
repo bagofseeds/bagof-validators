@@ -16,6 +16,7 @@ nav = [
     {"misc" = "api/misc.md"},
     {"numbers" = "api/numbers.md"},
     {"numpy" = "api/numpy.md"},
+    {"reports" = "api/reports.md"},
     {"strings" = "api/strings.md"},
   ]}
 ]

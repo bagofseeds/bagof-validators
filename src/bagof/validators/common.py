@@ -27,6 +27,20 @@ from bagof.hints.typevars.co import NONE, NoneType, T
 from ._compat import UNION_TYPES, UnionType
 from .base import ClassDecorator, Validator, ValidatorRegistry
 from .exceptions import ValidationError
+from .reports import (
+    Fix,
+    Problem,
+    Severity,
+    _annotation_meta,
+    _attach,
+    _collecting,
+    _expected,
+    _Frame,
+    _hint_name,
+    _problems_of,
+    _short_repr,
+    _wrong_type,
+)
 
 
 class IsAny(Validator[T], register=tx.Any):
@@ -61,6 +75,9 @@ class IsUnion(Validator[T], register=(tx.Union, UnionType)):
             raise TypeError(f"{self!r}: No arguments provided")
 
     def __call__(self, value: T) -> None:
+        state = _collecting()
+        if state is not None:
+            return self._call_collecting(value, state)
         errors = []
         for arg in self.args:
             # Wrap each member so that a plain `TypeError`/`ValueError`
@@ -79,6 +96,50 @@ class IsUnion(Validator[T], register=(tx.Union, UnionType)):
         raise self.type_error(
             value, "Not compatible with any of the union types.",
         ) from MultipleCauses(errors)
+
+    def _call_collecting(self, value: T, state: tx.Any) -> None:
+        # As above, inside `collect()`: the first member that does not
+        # raise wins, with its warnings, if any. When none matches, the
+        # problems of the member that matched best are kept.
+        location, start = state.location, len(state.pending)
+        errors, tried = [], []
+        for arg in self.args:
+            validator = Validator.get(arg)
+            try:
+                validator(value)
+                return
+            except ValidationError as e:
+                error = e
+                problems = _problems_of(e, value, location)
+            except (TypeError, ValueError) as e:
+                # A member that cannot answer did not match, as above.
+                error = self.value_error(value)
+                error.__cause__ = e
+                problems = [Problem(
+                    location, "value", f"{type(e).__name__}: {e}",
+                    _expected(validator, "value"), _short_repr(value),
+                    None,  # type: ignore[arg-type]  # resolved by `_settle`
+                )]
+            errors.append(error)
+            tried.append(state.pending[start:] + problems)
+            del state.pending[start:]
+        # A member that failed on the value's own type says nothing that
+        # `expected` does not. If one member got past that, the value
+        # was most likely meant as that member: report it as if alone.
+        shaped = [p for p in tried if not _wrong_type(p, location)]
+        if len(shaped) == 1:
+            problems = shaped[0]
+        else:
+            problems = [Problem(
+                location, "type",
+                "Not compatible with any of the union types.",
+                _hint_name(self.hint), _short_repr(value),
+                None,  # type: ignore[arg-type]  # resolved by `_settle`
+                None, tuple(p for member in shaped for p in member),
+            )]
+        raise _attach(self.type_error(
+            value, "Not compatible with any of the union types.",
+        ), problems) from MultipleCauses(errors)
 
 
 class IsLiteral(Validator[T], register=tx.Literal):
@@ -125,6 +186,8 @@ class IsAnnotated(Validator[T], register=tx.Annotated):
     """
 
     _REGISTRY: ValidatorRegistry = {}
+
+    _CACHED = Validator._CACHED + ("_report_meta",)
 
     @classmethod
     def register_metadata(
@@ -188,6 +251,9 @@ class IsAnnotated(Validator[T], register=tx.Annotated):
         wrapped_type = unwrap(self.hint, tx.Annotated)
         validators = []
         for arg in safe_get_args(self.hint):
+            if safe_isinstance(arg, (Severity, Fix)):
+                # How to report, not what to check: see `_severity_and_fix`.
+                continue
             if safe_issubclass(arg, Validator):
                 # Bind by keyword. Not every validator takes `hint` first
                 # -- `HasLength(length, ...)`, `IsInRange(min, max, ...)`,
@@ -219,6 +285,39 @@ class IsAnnotated(Validator[T], register=tx.Annotated):
 
         return tuple(validators)
 
+    @property
+    def _severity_and_fix(
+        self,
+    ) -> tx.Tuple[tx.Optional[Severity], tx.Optional[str]]:
+        """
+        The [`Severity`][bagof.validators.reports.Severity] and
+        [`Fix`][bagof.validators.reports.Fix] found in the metadata, or
+        `None` for either.
+        """
+        if getattr(self, "_report_meta", None) is None:
+            self._report_meta = _annotation_meta(self.hint)
+        return self._report_meta
+
     def __call__(self, value: T) -> None:
+        severity, fix = self._severity_and_fix
+        if _collecting() is not None:
+            # Every validator in turn -- but a wrong type skips the
+            # constraints after it, which would only repeat it, or worse.
+            with _Frame(self, value) as frame:
+                for validator in self.validators:
+                    if not frame.check(validator, value) \
+                            and frame.wrong_type():
+                        break
+                frame.relabel(severity, fix)
+            return
+        if severity is not None and not severity.fails:
+            # A failure under a non-failing severity (e.g. a warning)
+            # does not make the value invalid.
+            try:
+                for validator in self.validators:
+                    validator(value)
+            except ValidationError:
+                pass
+            return
         for validator in self.validators:
             validator(value)

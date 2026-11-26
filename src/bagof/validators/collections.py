@@ -36,6 +36,13 @@ from bagof.hints.typevars.co import ITERABLE, MAPPING, SEQUENCE, TUPLE
 # locals
 from .base import Validator
 from .exceptions import ValidationError
+from .reports import (
+    _annotation_meta,
+    _collecting,
+    _expected,
+    _Frame,
+    _hint_name,
+)
 
 _REQUIREDNESS = (tx.Required, tx.NotRequired)
 
@@ -125,14 +132,13 @@ class IsIterable(Validator[ITERABLE], register=abc.Iterable):
                 )
 
             arg_validator = Validator.get(self.args[0])
-            for i, item in enumerate(value):
-                try:
-                    arg_validator(item)
-                except ValidationError as e:
-                    raise self.value_error(
-                        value,
-                        f"Iterable's {_ordinal(i)} element is not valid.",
-                    ) from e
+            with _Frame(self, value) as frame:
+                for i, item in enumerate(value):
+                    frame.check(arg_validator, item, i, _element_message)
+
+
+def _element_message(index: int, item: tx.Any) -> str:
+    return f"Iterable's {_ordinal(index)} element is not valid."
 
 
 class IsSequence(IsIterable[SEQUENCE], register=abc.Sequence):
@@ -204,21 +210,18 @@ class IsMapping(Validator[MAPPING], register=abc.Mapping):
             items = value.items() if safe_isinstance(value, abc.Mapping) \
                 else value
 
-            for k, v in items:
+            with _Frame(self, value) as frame:
+                for k, v in items:
+                    frame.check(key_validator, k, k, _key_message, whole=True)
+                    frame.check(val_validator, v, k, _value_message)
 
-                try:
-                    key_validator(k)
-                except ValidationError as e:
-                    raise self.value_error(
-                        value, f"Key {k!r} is not valid.",
-                    ) from e
 
-                try:
-                    val_validator(v)
-                except ValidationError as e:
-                    raise self.value_error(
-                        value, f"At key {k!r}, value {v!r} is invalid.",
-                    ) from e
+def _key_message(key: tx.Any, item: tx.Any) -> str:
+    return f"Key {key!r} is not valid."
+
+
+def _value_message(key: tx.Any, item: tx.Any) -> str:
+    return f"At key {key!r}, value {item!r} is invalid."
 
 
 class IsTupleIsh(Validator[TUPLE]):
@@ -239,7 +242,7 @@ class IsTupleIsh(Validator[TUPLE]):
             # per-item types, but the value may be a list
             # (e.g., for JSON serialization).
 
-            IsSequence()(value)  # check type
+            _type_check(self, IsSequence(), value)
 
             if len(self.args) == 2 and self.args[1] is Ellipsis:
                 arg_validator = Validator.get(self.args[0])
@@ -254,18 +257,17 @@ class IsTupleIsh(Validator[TUPLE]):
                     )
                 validators = map(Validator.get, self.args)
 
-            for i, (validator, val) in enumerate(zip(validators, value)):
-                try:
-                    validator(val)
-                except ValidationError as e:
-                    raise self.value_error(
-                        value,
-                        f"Tuple's {_ordinal(i)} element is not valid.",
-                    ) from e
+            with _Frame(self, value) as frame:
+                for i, (validator, val) in enumerate(zip(validators, value)):
+                    frame.check(validator, val, i, _tuple_message)
 
         else:
             # If no args are provided, we do make a "strong" type check.
             super().__call__(value)  # check type
+
+
+def _tuple_message(index: int, item: tx.Any) -> str:
+    return f"Tuple's {_ordinal(index)} element is not valid."
 
 
 class IsTuple(IsTupleIsh[TUPLE], register=tuple):
@@ -293,11 +295,10 @@ class IsTypedDict(IsMapping[MAPPING], register=tx.TypedDict):
 
     DEFAULT = tx.TypedDict
 
-    def __call__(self, value: MAPPING) -> None:
-        # Check type - do not use super() -> instances are not `TypedDict`
-        IsMapping(dict)(value)
-
-        # Get typeddict options
+    def _options(
+        self,
+    ) -> tx.Tuple[tx.Dict[str, tx.Any], tx.Any, tx.Any, bool]:
+        """The fields' hints, required keys, extra items and closedness."""
         origin = self.origin
         extra_items = getattr(origin, "__extra_items__", tx.Any)
         closed = getattr(origin, "__closed__", False)
@@ -308,36 +309,69 @@ class IsTypedDict(IsMapping[MAPPING], register=tx.TypedDict):
         # falls back to `__total__` where the class has no
         # `__required_keys__`, which is `typing.TypedDict` before 3.9.
         required = typeddict_required_keys(origin)
+        return annots, required, extra_items, closed
 
-        # Check explicitly defined keys
-        for key, arg in annots.items():
-            if key not in value:
-                if key in required:
-                    raise self.value_error(
-                        value, f"Missing required key {key!r}"
-                    )
-            else:
+    def __call__(self, value: MAPPING) -> None:
+        # Check type - do not use super() -> instances are not `TypedDict`
+        _type_check(self, IsMapping(dict), value)
+
+        # Get typeddict options
+        annots, required, extra_items, closed = self._options()
+
+        with _Frame(self, value) as frame:
+
+            # Check explicitly defined keys
+            for key, arg in annots.items():
                 arg = _strip_requiredness(arg)
-                validator = Validator.get(arg)
-                try:
-                    validator(value[key])
-                except ValidationError as e:
-                    raise self.value_error(
-                        value, f"Value for key {key!r} is not valid."
-                    ) from e
+                if key not in value:
+                    if key in required:
+                        # A field whose `Severity` does not fail may be
+                        # missing (and is reported at that severity).
+                        severity, fix = _annotation_meta(arg)
+                        frame.fail(
+                            f"Missing required key {key!r}", key,
+                            expected=_hint_name(arg), severity=severity,
+                            fix=fix,
+                        )
+                else:
+                    frame.check(
+                        Validator.get(arg), value[key], key, _field_message
+                    )
 
-        # Check extra keys
-        for key, arg in value.items():
-            if key not in annots:
-                if closed:
-                    raise self.value_error(value, f"Unexpected key {key!r}")
-                validator = Validator.get(extra_items)
-                try:
-                    validator(arg)
-                except ValidationError as e:
-                    raise self.value_error(
-                        value, f"Value for extra key {key!r} is not valid."
-                    ) from e
+            # Check extra keys
+            for key, item in value.items():
+                if key not in annots:
+                    if closed:
+                        frame.fail(
+                            f"Unexpected key {key!r}", key, found=item
+                        )
+                    else:
+                        frame.check(
+                            Validator.get(extra_items), item, key,
+                            _extra_message,
+                        )
+
+
+def _field_message(key: tx.Any, item: tx.Any) -> str:
+    return f"Value for key {key!r} is not valid."
+
+
+def _extra_message(key: tx.Any, item: tx.Any) -> str:
+    return f"Value for extra key {key!r} is not valid."
+
+
+def _type_check(this: Validator, check: Validator, value: tx.Any) -> None:
+    """
+    Run a looser type check. Inside `collect()`, it fails in the name of
+    `this`, so that a problem expects a `Sidecar` rather than a `dict`.
+    """
+    if _collecting() is None:
+        check(value)
+        return
+    try:
+        check(value)
+    except ValidationError as e:
+        raise this.type_error(value, e.message) from e
 
 
 class HasLength(IsSequence[ITERABLE]):
@@ -370,9 +404,13 @@ class HasLength(IsSequence[ITERABLE]):
         self.length = length
 
     def __call__(self, value: ITERABLE) -> None:
-        super().__call__(value)
-        if len(value) != self.length:
-            raise self.value_error(
-                value, f"Does not match expected length "
-                f"{len(value)} != {self.length!r}."
-            )
+        with _Frame(self, value) as frame:
+            # Inside `collect()`, the length is checked even when an
+            # element is not valid, but not when the type is wrong.
+            if frame.check(super().__call__, value) or not frame.wrong_type():
+                if len(value) != self.length:
+                    frame.fail(
+                        f"Does not match expected length "
+                        f"{len(value)} != {self.length!r}.",
+                        expected=_expected(self, "value"), found=value,
+                    )
